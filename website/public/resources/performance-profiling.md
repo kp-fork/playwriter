@@ -185,6 +185,11 @@ EOF
 - If you see **long tasks over 50ms**, startup JS is the first suspect.
 - Look for large client bundles, hydration-heavy UI, and event handlers doing too much work.
 
+**Need deeper CPU answers**
+
+- If vitals and request sizes are not enough, record a **`.cpuprofile`** with Playwriter's raw **`Profiler.*`** CDP commands and inspect it with **[profano](https://github.com/remorses/profano)**.
+- A good place to keep your reusable profiling snippets is your dots repo, for example **`~/.config/opencode/`**.
+
 **Good load event is not enough**
 
 - A page can have a decent `load` time and still feel slow if **LCP** or **long tasks** are bad.
@@ -211,6 +216,7 @@ EOF
 - split large client bundles
 - avoid hydrating UI that is not immediately interactive
 - move optional widgets behind user action or idle time
+- if the culprit is still unclear, switch from vitals to a CPU profile and inspect hot functions with **profano**
 
 **If bytes are bad but vitals look good**
 
