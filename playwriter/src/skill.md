@@ -129,6 +129,16 @@ console.log({ title, url });
 - **Heredoc** (`<<'EOF'`): best for multiline code. The quoted `'EOF'` delimiter disables all bash expansion. Any character works inside, including `$`, backticks, and single quotes.
 - **`$'...'`**: allows `\'` escaping but `\n`, `\t`, `\\` become special — conflicts with JS regex patterns.
 
+### Execute from file
+
+For longer scripts, use `-f` instead of `-e` to execute JavaScript from a file:
+
+```bash
+playwriter -s 1 -f script.js
+```
+
+The file is read from disk and executed in the same sandbox as `-e`. All context variables (`state`, `page`, `context`, etc.) are available. `-e` and `-f` cannot be used together.
+
 ### Debugging playwriter issues
 
 If some internal critical error happens you can read the relay server logs to understand the issue. The log file is located in the user home directory:
