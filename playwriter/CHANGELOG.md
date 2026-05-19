@@ -1,35 +1,20 @@
 # Changelog
 
-## 0.1.6
+## 0.2.0
 
-1. **Security: remove loopback auth bypass on privileged HTTP routes** — `0.1.5` skipped the token check on `/cli/*`, `/recording/*`, and `/mcp-log` for connections from `127.0.0.1`/`::1`. Under the recommended remote-access topology (traforo/ngrok/cloudflared running as a local agent forwarding public traffic to `localhost:19988`), every public request reaches the relay from `127.0.0.1`, which made the bypass equivalent to no auth at all — anyone with the public tunnel URL could call `/cli/execute` for full RCE in the user's Chrome. The middleware now requires the token on every request, regardless of source.
-2. **In-process callers attach the token from env** — `playwriter serve --token …` now sets `PLAYWRITER_TOKEN` in the relay process so `screen-recording.ts` (and any future in-process privileged caller) can include `Authorization: Bearer …` in its loopback HTTP calls. Mirrors what `mcp.ts` already does for `/mcp-log`.
-3. **`/cli/execute` uses the shared `buildAuthHeaders` helper** — was still building the header inline; now consistent with the other five `/cli/*` fetch sites.
-4. **`connect-cdp-demo.ts` no longer ships a hardcoded `'secret_token'` fallback** — fails fast with a clear message if `PLAYWRITER_TOKEN` is unset.
-
-## 0.1.5
-
-1. **`--token` now works on every remote subcommand** — `session new`, `session list`, `session delete`, `session reset`, and `browser list` all accept `--token <token>` (or `PLAYWRITER_TOKEN` env var) and forward `Authorization: Bearer …` to the relay's `/cli/*` endpoints. Previously only `playwriter -e` sent the token, so against a token-protected `playwriter serve` every other command returned `401 Unauthorized`. Thanks to @ivanleomk for the original fix.
-2. **Internal CDP connection authenticates against its own relay** — when `serve --token` is on, the in-process `ExecutorManager` now passes the token through `cdpConfig`, so the executor's own `chromium.connectOverCDP(ws://127.0.0.1:19988/cdp/<id>?token=…)` call no longer gets rejected by its own auth check.
-3. **Loopback bypass for privileged routes** — `/cli/*`, `/recording/*`, and `/mcp-log` now skip the token check for connections from `127.0.0.1`/`::1`, since those can only originate from in-process executor code that already runs downstream of an authenticated `/cdp/*` WebSocket. Remote requests are unaffected.
-4. **`POST /mcp-log` is now token-protected** — previously open, so any reachable client could spam the relay log file. The MCP itself sends `Authorization: Bearer ${PLAYWRITER_TOKEN}` when configured.
-5. **New `connect-cdp-demo.ts` script** — minimal example showing how an external Playwright client connects through the relay's `/cdp/<id>?token=<token>` endpoint over a tunnel.
-
-## 0.1.4
-
-1. **Add React component inspection for pinned elements** — agents can now call `getReactComponentInfo({ locator })` to get the nearest React component name, parent hierarchy, sanitized props, and source locations when React exposes them. The in-page pin flows use a short `inspectPinnedElement(url, expression)` helper that prints the DOM and React info internally. Non-React elements return `null` instead of throwing.
-
-## 0.1.3
-
-1. **Expand the performance profiling guide with CPU profiling follow-up** — the generated `performance-profiling.md` resource now points readers at `profano` for deeper `.cpuprofile` analysis when web vitals and request sizes are not enough, and suggests keeping reusable profiling snippets in the dots repo such as `~/.config/opencode/`.
-
-## 0.1.2
-
-1. **Add a website performance profiling guide** — Playwriter now ships a generated `performance-profiling.md` resource that shows how to measure TTFB, FCP, LCP, CLS, heavy requests, and interactivity blockers with Playwriter plus raw CDP. The guide focuses on concise good/needs-work thresholds, how to identify what blocked first paint or interactivity, and concrete command snippets you can run against a real site.
-
-## 0.1.1
-
-1. **Document absolute paths for saved artifacts** — the skill docs now explicitly tell agents to use absolute paths for Playwright artifact APIs like `page.screenshot({ path })`, `page.pdf({ path })`, `download.saveAs(path)`, and `video.saveAs(path)`. These paths are resolved inside Playwright, not through the sandboxed `fs`, so relative paths can land under the relay server cwd instead of the agent's session folder.
+1. **New `-f/--file` flag** — execute JavaScript from a file instead of inline `-e` strings:
+   ```bash
+   playwriter -s 1 -f script.js
+   ```
+   The file runs in the same sandbox as `-e` with all context variables (`state`, `page`, `context`, etc.) available. `-e` and `-f` are mutually exclusive.
+2. **React component inspection for pinned elements** — agents can call `getReactComponentInfo({ locator })` to get the nearest React component name, parent hierarchy, sanitized props, and source file locations. Non-React elements return `null` instead of throwing.
+3. **Performance profiling guide** — new generated `performance-profiling.md` resource covering TTFB, FCP, LCP, CLS measurement, heavy request detection, and interactivity blockers with concrete Playwriter + CDP snippets. Also links to `profano` for deeper `.cpuprofile` analysis.
+4. **Shell tab completions** — `playwriter` now supports shell completions via goke. Run the completion setup for your shell to get tab completion on commands and flags.
+5. **Security: token required on all requests regardless of source** — the previous loopback bypass on `/cli/*`, `/recording/*`, and `/mcp-log` let any request from `127.0.0.1` skip auth. Under tunnel setups (traforo/ngrok/cloudflared), every public request arrives from localhost, making the bypass equivalent to no auth. The middleware now requires the token on every request.
+6. **`--token` works on every remote subcommand** — `session new`, `session list`, `session delete`, `session reset`, and `browser list` all forward `Authorization: Bearer …` to the relay's `/cli/*` endpoints. Previously only `playwriter -e` sent the token. Thanks to @ivanleomk for the original fix.
+7. **`POST /mcp-log` is now token-protected** — previously open, so any reachable client could spam the relay log file.
+8. **Fixed Next.js webpack layer prefixes in React source paths** — `/(app-pages-browser)/`, `/(ssr)/`, `/(rsc)/` and other webpack layer prefixes are now stripped from source file paths in React component info.
+9. **Skill docs require absolute paths for saved artifacts** — `page.screenshot({ path })`, `page.pdf({ path })`, `download.saveAs(path)`, and `video.saveAs(path)` now documented to use absolute paths since Playwright resolves them outside the sandboxed `fs`.
 
 ## 0.1.0
 
