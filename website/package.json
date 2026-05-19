@@ -8,7 +8,7 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@holocron.so/vite": "^0.9.0",
+    "@holocron.so/vite": "^0.10.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "spiceflow": "1.25.3-rsc.0",
