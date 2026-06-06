@@ -39,6 +39,31 @@ export async function getRelayServerVersion(port: number = RELAY_PORT): Promise<
   }
 }
 
+/**
+ * Poll /version until a relay responds or timeout expires.
+ * Used during startup races where a relay may have bound the port
+ * but isn't serving HTTP yet (issue #75).
+ */
+export async function waitForRelayVersion({
+  port = RELAY_PORT,
+  timeoutMs = 2000,
+  intervalMs = 200,
+}: {
+  port?: number
+  timeoutMs?: number
+  intervalMs?: number
+} = {}): Promise<string | null> {
+  const end = Date.now() + timeoutMs
+  while (Date.now() < end) {
+    const version = await getRelayServerVersion(port)
+    if (version) {
+      return version
+    }
+    await sleep(intervalMs)
+  }
+  return null
+}
+
 export async function getExtensionStatus(
   port: number = RELAY_PORT,
 ): Promise<{ connected: boolean; activeTargets: number; playwriterVersion: string | null } | null> {
@@ -196,11 +221,26 @@ export interface EnsureRelayServerOptions {
   env?: Record<string, string>
 }
 
+// Module-level dedup: if ensureRelayServer is called concurrently within the
+// same process (e.g. two MCP tool handlers at once), only one spawn runs.
+let pendingEnsure: Promise<true | undefined> | null = null
+
 /**
  * Ensures the relay server is running. Starts it if not running.
  * Optionally restarts on version mismatch.
+ * Concurrent calls within the same process are deduplicated.
  */
 export async function ensureRelayServer(options: EnsureRelayServerOptions = {}): Promise<true | undefined> {
+  if (pendingEnsure) {
+    return pendingEnsure
+  }
+  pendingEnsure = ensureRelayServerImpl(options).finally(() => {
+    pendingEnsure = null
+  })
+  return pendingEnsure
+}
+
+async function ensureRelayServerImpl(options: EnsureRelayServerOptions = {}): Promise<true | undefined> {
   const { logger, restartOnVersionMismatch = true, env: additionalEnv } = options
   const serverVersion = await getRelayServerVersion(RELAY_PORT)
 
@@ -227,11 +267,28 @@ export async function ensureRelayServer(options: EnsureRelayServerOptions = {}):
   } else {
     const listeningPids = await getListeningPidsForPort({ port: RELAY_PORT }).catch(() => [])
     if (listeningPids.length > 0) {
-      logger?.log(
-        pc.yellow(
-          `Port ${RELAY_PORT} is already in use (pid(s): ${listeningPids.join(', ')}). Attempting to stop the existing process...`,
-        ),
-      )
+      // Something is on the port but /version didn't respond. It might be a
+      // relay that's still starting (race with another CLI/MCP instance).
+      // Poll /version briefly before deciding to kill it (issue #75).
+      const foundVersion = await waitForRelayVersion({ port: RELAY_PORT })
+      if (foundVersion) {
+        // A relay came up while we waited; use it
+        if (foundVersion === VERSION || compareVersions(foundVersion, VERSION) > 0) {
+          return
+        }
+        if (!restartOnVersionMismatch) {
+          return
+        }
+        logger?.log(
+          pc.yellow(`CDP relay server version mismatch (server: ${foundVersion}, client: ${VERSION}), restarting...`),
+        )
+      } else {
+        logger?.log(
+          pc.yellow(
+            `Port ${RELAY_PORT} is already in use (pid(s): ${listeningPids.join(', ')}). Attempting to stop the existing process...`,
+          ),
+        )
+      }
       await killRelayServer({ port: RELAY_PORT })
     }
 

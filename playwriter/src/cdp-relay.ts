@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { serve } from '@hono/node-server'
+import { createAdaptorServer } from '@hono/node-server'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import { createNodeWebSocket } from '@hono/node-ws'
 import type { WSContext } from 'hono/ws'
@@ -2146,8 +2146,25 @@ export async function startPlayWriterCDPRelayServer({
     return c.json(result)
   })
 
-  const server = serve({ fetch: app.fetch, port, hostname: host })
+  // Use createAdaptorServer instead of serve() so we control the listen()
+  // timing. This lets us inject WebSocket upgrade handlers before binding and
+  // await the bind to surface EADDRINUSE as a catchable error (issue #75).
+  const server = createAdaptorServer({ fetch: app.fetch, hostname: host })
   injectWebSocket(server)
+
+  await new Promise<void>((resolve, reject) => {
+    const onListening = () => {
+      server.off('error', onError)
+      resolve()
+    }
+    const onError = (error: Error) => {
+      server.off('listening', onListening)
+      reject(error)
+    }
+    server.once('listening', onListening)
+    server.once('error', onError)
+    server.listen(port, host)
+  })
 
   const wsHost = `ws://${host}:${port}`
   const cdpEndpoint = `${wsHost}/cdp`
