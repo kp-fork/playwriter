@@ -41,10 +41,13 @@ function createTruncatingReplacer({ maxStringLength }: { maxStringLength: number
   }
 }
 
+const DEFAULT_MAX_ENTRIES = Number(process.env.PLAYWRITER_CDP_LOG_MAX_ENTRIES || 10_000)
+
 export function createCdpLogger({
   logFilePath,
   maxStringLength,
-}: { logFilePath?: string; maxStringLength?: number } = {}): CdpLogger {
+  maxEntries,
+}: { logFilePath?: string; maxStringLength?: number; maxEntries?: number } = {}): CdpLogger {
   const resolvedLogFilePath = logFilePath || LOG_CDP_FILE_PATH
   const logDir = path.dirname(resolvedLogFilePath)
   if (!fs.existsSync(logDir)) {
@@ -53,12 +56,35 @@ export function createCdpLogger({
   fs.writeFileSync(resolvedLogFilePath, '')
 
   let queue: Promise<void> = Promise.resolve()
+  let lineCount = 0
+  let rotating = false
   const maxLength = maxStringLength ?? DEFAULT_MAX_STRING_LENGTH
+  const resolvedMaxEntries = maxEntries ?? DEFAULT_MAX_ENTRIES
+  // Keep half the entries after rotation so we don't rotate on every write
+  const keepAfterRotation = Math.floor(resolvedMaxEntries / 2)
+
+  const rotate = async (): Promise<void> => {
+    rotating = true
+    const content = await fs.promises.readFile(resolvedLogFilePath, 'utf-8')
+    const lines = content.split('\n').filter((l) => {
+      return l.length > 0
+    })
+    const kept = lines.slice(-keepAfterRotation)
+    await fs.promises.writeFile(resolvedLogFilePath, kept.join('\n') + '\n')
+    lineCount = kept.length
+    rotating = false
+  }
 
   const log = (entry: CdpLogEntry): void => {
     const replacer = createTruncatingReplacer({ maxStringLength: maxLength })
     const line = JSON.stringify(entry, replacer)
-    queue = queue.then(() => fs.promises.appendFile(resolvedLogFilePath, `${line}\n`))
+    queue = queue.then(async () => {
+      await fs.promises.appendFile(resolvedLogFilePath, `${line}\n`)
+      lineCount++
+      if (lineCount > resolvedMaxEntries && !rotating) {
+        await rotate()
+      }
+    })
   }
 
   return {
