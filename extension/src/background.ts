@@ -34,6 +34,9 @@ const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
 type NavigatorWithUaData = Navigator & {
   userAgentData?: {
     brands: Array<{ brand: string; version: string }>
+    getHighEntropyValues?: (hints: string[]) => Promise<{
+      fullVersionList?: Array<{ brand: string; version: string }>
+    }>
   }
 }
 
@@ -58,6 +61,21 @@ function createInstallId(): string {
     .join('')
 }
 
+function browserNameFromBrands(brands: Array<{ brand: string; version: string }>): string | null {
+  const brandNames = brands.map((brand) => {
+    return brand.brand.trim().toLowerCase()
+  })
+
+  if (brandNames.some((brand) => brand === 'brave')) return 'Brave'
+  if (brandNames.some((brand) => brand === 'microsoft edge')) return 'Edge'
+  if (brandNames.some((brand) => brand === 'opera')) return 'Opera'
+  if (brandNames.some((brand) => brand === 'vivaldi')) return 'Vivaldi'
+  if (brandNames.some((brand) => brand === 'google chrome canary')) return 'Chrome Canary'
+  if (brandNames.some((brand) => brand === 'google chrome')) return 'Chrome'
+  if (brandNames.some((brand) => brand === 'chromium')) return 'Chromium'
+  return null
+}
+
 async function detectBrowserName(): Promise<string> {
   if ((chrome as unknown as { ghostPublicAPI?: unknown }).ghostPublicAPI) {
     return 'Ghost'
@@ -65,17 +83,23 @@ async function detectBrowserName(): Promise<string> {
 
   const navigatorWithUaData = navigator as NavigatorWithUaData
   const brands = navigatorWithUaData.userAgentData?.brands
-  if (brands && brands.length > 0) {
-    const brandNames = brands.map((brand) => {
-      return brand.brand.trim().toLowerCase()
-    })
+  const highEntropyValues = await navigatorWithUaData.userAgentData?.getHighEntropyValues?.([
+    'fullVersionList',
+  ]).catch(() => {
+    return null
+  })
+  const fullVersionList = highEntropyValues?.fullVersionList || []
 
-    if (brandNames.some((brand) => brand === 'brave')) return 'Brave'
-    if (brandNames.some((brand) => brand === 'microsoft edge')) return 'Edge'
-    if (brandNames.some((brand) => brand === 'opera')) return 'Opera'
-    if (brandNames.some((brand) => brand === 'vivaldi')) return 'Vivaldi'
-    if (brandNames.some((brand) => brand === 'google chrome')) return 'Chrome'
-    if (brandNames.some((brand) => brand === 'chromium')) return 'Chromium'
+  const highEntropyName = browserNameFromBrands(fullVersionList)
+  if (highEntropyName) {
+    return highEntropyName
+  }
+
+  if (brands && brands.length > 0) {
+    const lowEntropyName = browserNameFromBrands(brands)
+    if (lowEntropyName) {
+      return lowEntropyName
+    }
   }
 
   const ua = navigator.userAgent.toLowerCase()
