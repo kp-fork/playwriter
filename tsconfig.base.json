@@ -18,7 +18,6 @@
     "declaration": true,
     "declarationMap": true,
     "strict": true,
-    "downlevelIteration": true,
     "esModuleInterop": true,
     "noImplicitAny": false,
     "useUnknownInCatchVariables": false,
