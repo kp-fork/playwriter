@@ -1,6 +1,7 @@
 ---
 title: Playwriter
 description: Control your real Chrome browser with Playwright from an agent, CLI, or MCP server.
+rendering: static
 prompt: |
   read #holocron . migrate website to be a holocron docs website. using a mdx
   page. remove all website only code. start from scratch, use template as
@@ -8,20 +9,13 @@ prompt: |
   also read SKILL for how to write docs
 ---
 
-<Hero className='my-16'>
+import { HeroSection } from './components/hero-section.tsx'
 
-<Logo className='mx-auto mb-[23px] h-8'/>
+<Above>
 
-<p className='text-center font-medium text-balance'>Let agents control your Chrome browser, all your websites already logged in. Automate real work</p>
+<HeroSection />
 
-</Hero>
-
-<Aside>
-<Note>
-If you like **Playwriter** please
-[star on GitHub](https://github.com/remorses/playwriter). It helps give more visibility to the project!
-</Note>
-</Aside>
+</Above>
 
 A Chrome extension and CLI that let your agents control **your actual browser** with
 logins, extensions, and cookies already there. No headless instance, no bot detection, no extra memory.
@@ -33,6 +27,7 @@ logins, extensions, and cookies already there. No headless instance, no bot dete
   alt='Playwriter controlling Chrome with accessibility labels overlay'
   width={1280}
   height={800}
+
 />
   
 

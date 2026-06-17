@@ -12,8 +12,7 @@
     "dark": "/favicon-32.png"
   },
   "colors": {
-    // "primary": "#"
-
+    "primary": "#FF9500"
   },
   "navigation": {
     "tabs": [
