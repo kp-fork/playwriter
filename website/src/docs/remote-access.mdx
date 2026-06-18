@@ -1,6 +1,7 @@
 ---
 title: Remote Access
 description: Control a Chrome browser on any machine from anywhere over the internet using playwriter serve and traforo tunnels.
+icon: lucide:globe
 ---
 
 Control a Chrome browser on any machine from anywhere over the internet. No VPN, no firewall rules, no port forwarding.
@@ -10,36 +11,36 @@ Control a Chrome browser on any machine from anywhere over the internet. No VPN,
 Playwriter's relay server runs on the host machine alongside Chrome. A [traforo](https://traforo.dev) tunnel exposes it to the internet through Cloudflare, giving you a **secure public URL**. The remote machine connects through this URL to control Chrome.
 
 ```diagram
-┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│  HOST MACHINE (has Chrome)                                                                │
-│                                                                                           │
-│  Chrome + Extension ◄──────── local WS ────────► Relay Server :19988                      │
-│                                                       ▲                                   │
-│                                                       │ local                             │
-│                                                       ▼                                   │
-│                                                  Traforo Client                           │
-│                                                       │                                   │
-└───────────────────────────────────────────────────────┼───────────────────────────────────┘
-                                                        │ outbound WS
-                                                        ▼
-                                               ┌─────────────────┐
-                                               │   Cloudflare     │
-                                               │   Durable Object │
-                                               │                  │
-                                               │   https://{id}-  │
-                                               │   tunnel.        │
-                                               │   traforo.dev    │
-                                               └────────┬────────┘
-                                                        │
-                                                        ▼
-┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│  REMOTE MACHINE (CLI or MCP)                                                              │
-│                                                                                           │
-│  playwriter -s 1 -e "await page.goto('https://...')"                                     │
-│                                                                                           │
-│  PLAYWRITER_HOST=https://{id}-tunnel.traforo.dev                                          │
-│  PLAYWRITER_TOKEN=&lt;secret&gt;                                                          │
-└───────────────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│  HOST MACHINE (has Chrome)                                                             │
+│                                                                                        │
+│  Chrome + Extension ◄────── local WS ──────► Relay Server :19988                       │
+│                                                    ▲                                   │
+│                                                    │ local                             │
+│                                                    ▼                                   │
+│                                               Traforo Client                           │
+│                                                    │                                   │
+└────────────────────────────────────────────────────┼───────────────────────────────────┘
+                                                     │ outbound WS
+                                                     ▼
+                                            ┌─────────────────┐
+                                            │   Cloudflare     │
+                                            │   Durable Object │
+                                            │                  │
+                                            │   https://{id}-  │
+                                            │   tunnel.        │
+                                            │   traforo.dev    │
+                                            └────────┬────────┘
+                                                     │
+                                                     ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│  REMOTE MACHINE (CLI or MCP)                                                           │
+│                                                                                        │
+│  playwriter -s 1 -e "await page.goto('https://...')"                                  │
+│                                                                                        │
+│  PLAYWRITER_HOST=https://{id}-tunnel.traforo.dev                                       │
+│  PLAYWRITER_TOKEN=&lt;secret&gt;                                                       │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Traforo proxies both HTTP and WebSocket connections, which is critical because playwriter uses WebSockets for real-time CDP communication.
@@ -152,21 +153,21 @@ The relay server **must run on the same machine as Chrome**. The Chrome extensio
 From Docker, set `PLAYWRITER_HOST` to reach the host relay.
 
 ```diagram
-┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│  HOST MACHINE                                                                             │
-│                                                                                           │
-│  Chrome + Extension ◄──────── local WS ────────► playwriter serve :19988                  │
-└──────────────────────────────────────────────────────────▲────────────────────────────────┘
-                                                           │
-                                              host.docker.internal:19988
-                                                           │
-┌──────────────────────────────────────────────────────────┴────────────────────────────────┐
-│  DOCKER CONTAINER                                                                         │
-│                                                                                           │
-│  PLAYWRITER_HOST=host.docker.internal                                                     │
-│                                                                                           │
-│  playwriter -s 1 -e "await page.goto('https://...')"                                     │
-└───────────────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│  HOST MACHINE                                                                          │
+│                                                                                        │
+│  Chrome + Extension ◄────── local WS ──────► playwriter serve :19988                   │
+└───────────────────────────────────────────────────────▲────────────────────────────────┘
+                                                        │
+                                           host.docker.internal:19988
+                                                        │
+┌───────────────────────────────────────────────────────┴────────────────────────────────┐
+│  DOCKER CONTAINER                                                                      │
+│                                                                                        │
+│  PLAYWRITER_HOST=host.docker.internal                                                  │
+│                                                                                        │
+│  playwriter -s 1 -e "await page.goto('https://...')"                                  │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Step 1: Host.** Start the relay server on the host machine (where Chrome is running):

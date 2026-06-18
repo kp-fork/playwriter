@@ -36,9 +36,9 @@ The MCP exposes:
 
 ### `PLAYWRITER_AUTO_ENABLE`
 
-Auto-create a tab when Playwright connects (no manual extension click needed).
+Auto-creates a tab when Playwright connects (no manual extension click needed). **Enabled by default** in both CLI and MCP. The auto-created tab starts at `about:blank`; navigate it to any URL.
 
-> **Note:** CLI enables this by default. This is only needed for MCP server usage.
+Set `PLAYWRITER_AUTO_ENABLE=false` to disable and require manually enabling the extension on a tab before connecting:
 
 ```json
 {
@@ -47,14 +47,12 @@ Auto-create a tab when Playwright connects (no manual extension click needed).
       "command": "npx",
       "args": ["-y", "playwriter@latest"],
       "env": {
-        "PLAYWRITER_AUTO_ENABLE": "1"
+        "PLAYWRITER_AUTO_ENABLE": "false"
       }
     }
   }
 }
 ```
-
-The auto-created tab starts at `about:blank`. Navigate it to any URL.
 
 ## Direct CDP (no extension needed)
 

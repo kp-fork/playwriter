@@ -14,11 +14,33 @@
   "colors": {
     "primary": "#FF9500"
   },
+  "knownPaths": ["/README"],
   "navigation": {
     "tabs": [
       {
         "tab": "Docs",
-        "pages": ["index", "docs/remote-access"]
+        "groups": [
+          {
+            "group": "Getting Started",
+            "icon": "lucide:rocket",
+            "pages": ["index", "docs/installation", "docs/cli", "docs/mcp-setup"]
+          },
+          {
+            "group": "Guides",
+            "icon": "lucide:book-open",
+            "pages": ["docs/remote-access", "docs/troubleshooting"]
+          },
+          {
+            "group": "Use Cases",
+            "icon": "lucide:lightbulb",
+            "pages": ["docs/use-cases"]
+          },
+          {
+            "group": "Reference",
+            "icon": "lucide:book-text",
+            "pages": ["docs/skill"]
+          }
+        ]
       }
     ],
     "global": {
