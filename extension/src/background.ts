@@ -35,14 +35,21 @@ const RELAY_PORT = Number(process.env.PLAYWRITER_PORT) || 19988
 // frozen/hibernated (e.g. Ghost Browser suspended tabs), chrome.debugger.sendCommand
 // hangs forever. These commands get a 10s timeout so frozen tabs fail fast instead of
 // blocking the entire Playwright connection setup for 30s per command.
+// CDP commands that should return near-instantly on a healthy tab. If a tab is
+// frozen/hibernated (e.g. Ghost Browser suspended tabs), chrome.debugger.sendCommand
+// hangs forever. These commands get a 10s timeout so frozen tabs fail fast instead of
+// blocking the entire Playwright connection setup for 30s per command.
+// Note: Page.addScriptToEvaluateOnNewDocument is NOT included because user-provided
+// scripts with runImmediately:true can legitimately take longer than 10s.
 const FAST_CDP_COMMAND_TIMEOUT_MS = new Map<string, number>([
+  ['Browser.getWindowForTarget', 10000],
   ['Page.enable', 10000],
   ['Page.getFrameTree', 10000],
   ['Page.setLifecycleEventsEnabled', 10000],
-  ['Page.addScriptToEvaluateOnNewDocument', 10000],
   ['Page.createIsolatedWorld', 10000],
   ['Page.setDownloadBehavior', 10000],
   ['Log.enable', 10000],
+  ['Network.enable', 10000],
   ['Emulation.setFocusEmulationEnabled', 10000],
   ['Emulation.setEmulatedMedia', 10000],
   ['Runtime.runIfWaitingForDebugger', 10000],
@@ -55,14 +62,21 @@ async function sendCommandWithTimeout(
   params: object | undefined,
   timeout: number,
 ): Promise<unknown> {
-  return await Promise.race([
-    chrome.debugger.sendCommand(debuggee, method, params),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`CDP command timed out after ${timeout}ms: ${method} (tab may be frozen/hibernated)`))
-      }, timeout)
-    }),
-  ])
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      chrome.debugger.sendCommand(debuggee, method, params),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`CDP command timed out after ${timeout}ms: ${method} (tab may be frozen/hibernated)`))
+        }, timeout)
+      }),
+    ])
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
+  }
 }
 
 type NavigatorWithUaData = Navigator & {
