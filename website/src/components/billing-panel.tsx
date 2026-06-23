@@ -63,7 +63,7 @@ export function BillingPanel({ subscription }: { subscription: BillingSubscripti
   }
 
   return (
-    <div className="flex max-w-xl flex-col gap-5 rounded-xl border border-border bg-background p-6">
+    <div className="flex flex-col gap-5 rounded-xl border border-border bg-background p-6">
       <div className="flex flex-col gap-1">
         <h2 className="text-base font-semibold">Cloud Browsers</h2>
         <p className="text-sm text-muted-foreground">

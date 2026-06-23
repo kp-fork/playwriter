@@ -83,7 +83,7 @@ async function claimCloudSessionSlot({
 function checkSlotOccupied(
   row: typeof schema.cloudSession.$inferSelect,
   deadIds: string[],
-): 'occupied' | 'dead' | 'check-bu' {
+): 'occupied' | 'dead' | 'needs-api-check' {
   if (isPendingRow(row)) {
     if (Date.now() - row.createdAt < PENDING_STALE_MS) {
       return 'occupied'
@@ -91,7 +91,7 @@ function checkSlotOccupied(
     deadIds.push(row.id)
     return 'dead'
   }
-  return 'check-bu'
+  return 'needs-api-check'
 }
 
 /** Check if a cloud session's BU VM is still alive. Returns null if dead
@@ -113,19 +113,13 @@ async function resolveActiveSession(
   return null
 }
 
-/** Batch-delete dead cloud session rows. Skips if nothing to delete. */
+/** Delete dead cloud session rows in one statement. Idempotent: concurrent
+ *  requests deleting the same row is safe (DELETE by PK is a no-op if gone). */
 async function cleanupDeadSessions(deadIds: string[]): Promise<void> {
   if (deadIds.length === 0) return
   const db = getDb()
-  if (deadIds.length === 1) {
-    await db.delete(schema.cloudSession).where(orm.eq(schema.cloudSession.id, deadIds[0]!)).limit(1)
-    return
-  }
-  await db.batch(
-    deadIds.map((id) => {
-      return db.delete(schema.cloudSession).where(orm.eq(schema.cloudSession.id, id)).limit(1)
-    }) as [any, ...any[]],
-  )
+  const uniqueIds = [...new Set(deadIds)]
+  await db.delete(schema.cloudSession).where(orm.inArray(schema.cloudSession.id, uniqueIds))
 }
 
 // ── Sub-app ─────────────────────────────────────────────────────────
@@ -148,8 +142,7 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
     // for a single batch-delete at the end instead of N individual deletes.
     const deadIds: string[] = []
     const nonPending = sessions.filter((row) => {
-      if (isPendingRow(row)) return false
-      return true
+      return !isPendingRow(row)
     })
     const vmResults = await Promise.all(
       nonPending.map((row) => {
@@ -229,10 +222,13 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
       // Check each session, collecting dead IDs for batch cleanup.
       // BU API checks run in parallel; stale pending rows are detected locally.
       const deadIds: string[] = []
+      let freshPendingCount = 0
       const buCheckRows: typeof dbSessions = []
       for (const row of dbSessions) {
         const status = checkSlotOccupied(row, deadIds)
-        if (status === 'check-bu') {
+        if (status === 'occupied') {
+          freshPendingCount++
+        } else if (status === 'needs-api-check') {
           buCheckRows.push(row)
         }
       }
@@ -242,9 +238,8 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         }),
       )
       await cleanupDeadSessions(deadIds)
-      const locallyOccupied = dbSessions.length - deadIds.length - buCheckRows.length
       const buOccupied = buResults.filter(Boolean).length
-      const activeCount = locallyOccupied + buOccupied
+      const activeCount = freshPendingCount + buOccupied
 
       if (activeCount >= maxSessions) {
         throw json(

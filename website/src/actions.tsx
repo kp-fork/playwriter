@@ -53,7 +53,11 @@ export async function startCheckout(formData: FormData) {
   const { session, org } = await requireOrgSession(actionRequest)
   const returnUrl = new URL('/dashboard', getBaseUrl()).toString()
 
-  const customerId = await getOrCreateStripeCustomer({ orgId: org.id, email: session.user.email })
+  const customerId = await getOrCreateStripeCustomer({
+    orgId: org.id,
+    email: session.user.email,
+    stripeCustomerId: org.stripeCustomerId,
+  })
   if (customerId instanceof Error) throw customerId
 
   const stripe = getStripe()
@@ -61,8 +65,11 @@ export async function startCheckout(formData: FormData) {
   // If already subscribed, short-circuit to the portal. Check both local D1
   // and Stripe directly because Checkout completion can race ahead of webhook
   // delivery, and two dashboard submissions can happen before D1 is updated.
-  const existing = await getOrgSubscription(org.id)
-  const hasStripeSubscription = await hasExistingStripeSubscription(customerId)
+  // These are independent (D1 vs Stripe API), so run in parallel.
+  const [existing, hasStripeSubscription] = await Promise.all([
+    getOrgSubscription(org.id),
+    hasExistingStripeSubscription(customerId),
+  ])
   if (hasStripeSubscription instanceof Error) throw hasStripeSubscription
   if (existing || hasStripeSubscription) {
     const portal = await stripe.billingPortal.sessions.create({
@@ -101,7 +108,11 @@ export async function openBillingPortal() {
   const { session, org } = await requireOrgSession(actionRequest)
   const returnUrl = new URL('/dashboard', getBaseUrl()).toString()
 
-  const customerId = await getOrCreateStripeCustomer({ orgId: org.id, email: session.user.email })
+  const customerId = await getOrCreateStripeCustomer({
+    orgId: org.id,
+    email: session.user.email,
+    stripeCustomerId: org.stripeCustomerId,
+  })
   if (customerId instanceof Error) throw customerId
 
   const stripe = getStripe()

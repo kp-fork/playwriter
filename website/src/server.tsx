@@ -9,7 +9,7 @@ import { Spiceflow, redirect, json } from 'spiceflow'
 import { router } from 'spiceflow/react'
 import { z } from 'zod'
 import { app as holocronApp } from '@holocron.so/vite/app'
-import { getAuth, getBaseUrl, getSession, requireSession, ensureOrg, getOrgSubscription } from './db.ts'
+import { getAuth, getBaseUrl, getSession, requireSession, ensureOrg, getOrgSubscription, getOrgWithSubscription } from './db.ts'
 import { normalizeAuthRedirectPath } from './auth-redirect.ts'
 import { cloudApp } from './cloud-api.ts'
 import { stripeWebhookApp } from './stripe-webhook.ts'
@@ -105,18 +105,34 @@ export const app = new Spiceflow()
     const session = await getSession(request)
     if (!session) throw redirect('/login')
 
-    const orgInfo = await ensureOrg(session.userId, session.user.name)
-    const subscription = await getOrgSubscription(orgInfo.id)
+    // Try single-query path first (org already exists). Falls back to
+    // ensureOrg + getOrgSubscription on first visit when the org needs creating.
+    let orgInfo: { id: string; name: string }
+    let subscription: Awaited<ReturnType<typeof getOrgSubscription>>
+    const existing = await getOrgWithSubscription(session.userId)
+    if (existing) {
+      orgInfo = existing.org
+      subscription = existing.subscription
+    } else {
+      orgInfo = await ensureOrg(session.userId, session.user.name)
+      subscription = await getOrgSubscription(orgInfo.id)
+    }
+
     const { SignOutButton } = await import('./components/sign-out-button.tsx')
     const { BillingPanel } = await import('./components/billing-panel.tsx')
 
     const { PlaywriterLogo } = await import('./components/auth-page.tsx')
 
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mx-auto max-w-3xl px-6 py-10 min-h-screen flex flex-col">
         <div className="flex items-center justify-between mb-8">
           <PlaywriterLogo imageClassName="h-8" />
-          <SignOutButton />
+          <div className="flex items-center gap-4">
+            <a href="https://playwriter.dev" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Docs
+            </a>
+            <SignOutButton />
+          </div>
         </div>
         <div className="mb-6">
           <p className="text-sm text-foreground">
@@ -125,6 +141,25 @@ export const app = new Spiceflow()
           <p className="text-sm text-muted-foreground mt-1">Organization: {orgInfo.name}</p>
         </div>
         <BillingPanel subscription={subscription} />
+        <footer className="mt-auto pt-6 border-t border-border">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+            <a href="https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe" className="hover:text-foreground transition-colors">
+              Chrome Extension
+            </a>
+            <a href="https://playwriter.dev" className="hover:text-foreground transition-colors">
+              Docs
+            </a>
+            <a href="https://github.com/remorses/playwriter" className="hover:text-foreground transition-colors">
+              GitHub
+            </a>
+            <a href="https://github.com/remorses/playwriter/releases" className="hover:text-foreground transition-colors">
+              Changelog
+            </a>
+            <a href="https://playwriter.dev/#pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </a>
+          </div>
+        </footer>
       </div>
     )
   })

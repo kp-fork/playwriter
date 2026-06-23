@@ -106,10 +106,12 @@ export async function requireSession(request: RequestHeaders): Promise<Session> 
 
 // ── Org helpers ─────────────────────────────────────────────────────
 
+export type OrgInfo = { id: string; name: string; stripeCustomerId: string | null }
+
 /** Require session + ensure org in one call. Used by cloud API routes. */
 export async function requireOrgSession(request: RequestHeaders): Promise<{
   session: Session
-  org: { id: string; name: string }
+  org: OrgInfo
 }> {
   const session = await requireSession(request)
   const org = await ensureOrg(session.userId, session.user.name)
@@ -139,19 +141,59 @@ export async function getOrgSubscription(orgId: string): Promise<BillingSubscrip
   }
 }
 
+/** Get org + active subscription in one D1 query using nested relations.
+ *  Used by the dashboard to avoid sequential ensureOrg + getOrgSubscription.
+ *  Does NOT create the org if missing (call ensureOrg for that). */
+export async function getOrgWithSubscription(userId: string): Promise<{
+  org: OrgInfo
+  subscription: BillingSubscription | null
+} | null> {
+  const db = getDb()
+  const member = await db.query.orgMember.findFirst({
+    where: { userId },
+    with: {
+      org: {
+        with: {
+          subscriptions: {
+            where: { status: { in: [...ACTIVE_SUBSCRIPTION_STATUSES] } },
+            limit: 1,
+          },
+        },
+      },
+    },
+  })
+  if (!member?.org) return null
+  const org = member.org
+  const activeSub = org.subscriptions[0]
+  return {
+    org: { id: org.id, name: org.name, stripeCustomerId: org.stripeCustomerId },
+    subscription: activeSub
+      ? {
+          status: activeSub.status,
+          quantity: activeSub.quantity,
+          planName: activeSub.planName,
+          currentPeriodEnd: activeSub.currentPeriodEnd,
+          cancelAtPeriodEnd: activeSub.cancelAtPeriodEnd,
+        }
+      : null,
+  }
+}
+
 /** Get or create the user's org. Idempotent and race-safe:
  *  if two concurrent requests both try to create, the loser catches
  *  the unique constraint error and re-reads the winner's row. */
 export async function ensureOrg(
   userId: string,
   userName: string,
-): Promise<{ id: string; name: string }> {
+): Promise<OrgInfo> {
   const db = getDb()
   const existing = await db.query.orgMember.findFirst({
     where: { userId },
     with: { org: true },
   })
-  if (existing?.org) return { id: existing.org.id, name: existing.org.name }
+  if (existing?.org) {
+    return { id: existing.org.id, name: existing.org.name, stripeCustomerId: existing.org.stripeCustomerId }
+  }
 
   const orgId = ulid()
   try {
@@ -159,14 +201,16 @@ export async function ensureOrg(
       db.insert(schema.org).values({ id: orgId, name: userName }),
       db.insert(schema.orgMember).values({ orgId, userId, role: 'admin' }),
     ])
-    return { id: orgId, name: userName }
+    return { id: orgId, name: userName, stripeCustomerId: null }
   } catch (err) {
     // Race: another request already created the org for this user.
     const winner = await db.query.orgMember.findFirst({
       where: { userId },
       with: { org: true },
     })
-    if (winner?.org) return { id: winner.org.id, name: winner.org.name }
+    if (winner?.org) {
+      return { id: winner.org.id, name: winner.org.name, stripeCustomerId: winner.org.stripeCustomerId }
+    }
     throw err
   }
 }

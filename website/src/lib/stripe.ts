@@ -25,18 +25,29 @@ export function getStripe(): Stripe {
 
 /** Get or create the Stripe customer for an org. Idempotent and the single
  *  source of truth — never call stripe.customers.create anywhere else. Writes
- *  metadata.orgId so webhooks can always resolve the org from the customer. */
+ *  metadata.orgId so webhooks can always resolve the org from the customer.
+ *  Pass stripeCustomerId from ensureOrg to skip the D1 re-read when the org
+ *  already has a Stripe customer. If null/undefined, always re-reads D1 to
+ *  avoid concurrent requests creating duplicate Stripe customers. */
 export async function getOrCreateStripeCustomer({
   orgId,
   email,
+  stripeCustomerId,
 }: {
   orgId: string
   email: string | null | undefined
+  /** Pre-fetched from ensureOrg. When truthy, skips the D1 read. When null
+   *  or undefined, always re-reads the org to get the freshest value. */
+  stripeCustomerId?: string | null
 }): Promise<string | Error> {
+  // Only skip D1 when we already have a known Stripe customer. If the caller
+  // passed null, re-read because another concurrent request may have created
+  // the customer between when ensureOrg ran and now.
+  if (stripeCustomerId) return stripeCustomerId
+
   const db = getDb()
   const org = await db.query.org.findFirst({ where: { id: orgId } })
   if (!org) return new Error(`Org ${orgId} not found`)
-
   if (org.stripeCustomerId) return org.stripeCustomerId
 
   const stripe = getStripe()
@@ -210,7 +221,9 @@ export async function handleSubscriptionChange(
   return null
 }
 
-/** Resolve orgId from subscription metadata or Stripe customer metadata. */
+/** Resolve orgId from subscription metadata or Stripe customer metadata.
+ *  When both metadataOrgId and customerId are available, batches the two
+ *  D1 lookups into one round-trip. */
 async function resolveOrgId({
   metadataOrgId,
   customerId,
@@ -220,20 +233,24 @@ async function resolveOrgId({
 }): Promise<string | null> {
   const db = getDb()
 
-  // Primary: metadata.orgId on the subscription
-  if (metadataOrgId) {
+  // Batch both lookups when we have both identifiers (common case).
+  if (metadataOrgId && customerId) {
+    const [byId, byCustomer] = await db.batch([
+      db.query.org.findFirst({ where: { id: metadataOrgId } }),
+      db.query.org.findFirst({ where: { stripeCustomerId: customerId } }),
+    ] as const)
+    if (byId) return byId.id
+    if (byCustomer) return byCustomer.id
+  } else if (metadataOrgId) {
     const org = await db.query.org.findFirst({ where: { id: metadataOrgId } })
+    if (org) return org.id
+  } else if (customerId) {
+    const org = await db.query.org.findFirst({ where: { stripeCustomerId: customerId } })
     if (org) return org.id
   }
 
-  // Fallback: look up org by stripeCustomerId
+  // Last resort: check Stripe customer metadata.orgId
   if (customerId) {
-    const org = await db.query.org.findFirst({
-      where: { stripeCustomerId: customerId },
-    })
-    if (org) return org.id
-
-    // Second fallback: check Stripe customer metadata.orgId
     try {
       const stripe = getStripe()
       const customer = await stripe.customers.retrieve(customerId)
