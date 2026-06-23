@@ -6,8 +6,6 @@ import { getActionRequest, parseFormData, redirect } from 'spiceflow'
 import { router } from 'spiceflow/react'
 import { z } from 'zod'
 import { getAuth, getBaseUrl, requireSession, requireOrgSession, getOrgSubscription, getDb } from './db.ts'
-import * as orm from 'drizzle-orm'
-import * as schema from 'db/schema'
 import { getOrCreateStripeCustomer, getCloudPriceId, getStripe, hasExistingStripeSubscription } from './lib/stripe.ts'
 import type { BillingInterval } from './lib/billing-rules.ts'
 
@@ -56,8 +54,8 @@ export async function createApiKey(formData: FormData) {
       userId: session.userId,
     },
   })
-  // Return the raw key as JSON so the client can display it once
-  return result
+  // Only return the raw key, not internal fields like hashed key or rate limit state
+  return { key: result.key }
 }
 
 /** Revoke (delete) an API key owned by the current user. */

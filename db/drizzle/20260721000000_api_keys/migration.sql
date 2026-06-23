@@ -30,3 +30,4 @@ CREATE TABLE `apikey` (
 
 CREATE INDEX `apikey_reference_id_idx` ON `apikey` (`reference_id`);
 CREATE INDEX `apikey_config_id_idx` ON `apikey` (`config_id`);
+CREATE INDEX `apikey_key_idx` ON `apikey` (`key`);

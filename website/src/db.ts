@@ -16,7 +16,6 @@ import { apiKey } from '@better-auth/api-key'
 import { drizzleAdapter } from 'better-auth-drizzle-adapter'
 import { json } from 'spiceflow'
 import { ulid } from 'ulid'
-import * as orm from 'drizzle-orm'
 import { ACTIVE_SUBSCRIPTION_STATUSES, type BillingSubscription } from './lib/billing-rules.ts'
 
 // ── Drizzle client via D1 ───────────────────────────────────────────
@@ -83,8 +82,7 @@ type RequestHeaders = Pick<Request, 'headers'>
 export async function getSession(request: RequestHeaders): Promise<Session | null> {
   const hasCookie = request.headers.has('cookie')
   const hasAuthorization = request.headers.has('authorization')
-  const hasApiKey = request.headers.has('x-api-key')
-  if (!hasCookie && !hasAuthorization && !hasApiKey) return null
+  if (!hasCookie && !hasAuthorization) return null
 
   const auth = getAuth()
   let session: Awaited<ReturnType<typeof auth.api.getSession>>
@@ -117,16 +115,49 @@ export async function requireSession(request: RequestHeaders): Promise<Session> 
   return session
 }
 
+/** Like getSession but also accepts x-api-key header.
+ *  Only use this for cloud API routes, not for dashboard/device/billing. */
+export async function getSessionWithApiKey(request: RequestHeaders): Promise<Session | null> {
+  const hasCookie = request.headers.has('cookie')
+  const hasAuthorization = request.headers.has('authorization')
+  const hasApiKey = request.headers.has('x-api-key')
+  if (!hasCookie && !hasAuthorization && !hasApiKey) return null
+
+  const auth = getAuth()
+  let session: Awaited<ReturnType<typeof auth.api.getSession>>
+  try {
+    session = await auth.api.getSession({ headers: request.headers })
+  } catch (cause) {
+    console.error('Failed to get auth session:', cause)
+    return null
+  }
+  if (!session) return null
+  return {
+    userId: session.user.id,
+    user: {
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+      image: session.user.image ?? null,
+    },
+  }
+}
+
 // ── Org helpers ─────────────────────────────────────────────────────
 
 export type OrgInfo = { id: string; name: string; stripeCustomerId: string | null }
 
-/** Require session + ensure org in one call. Used by cloud API routes. */
+/** Require session + ensure org in one call. Used by cloud API routes.
+ *  Accepts x-api-key header in addition to cookies and bearer tokens,
+ *  so API keys can authenticate cloud browser requests. */
 export async function requireOrgSession(request: RequestHeaders): Promise<{
   session: Session
   org: OrgInfo
 }> {
-  const session = await requireSession(request)
+  const session = await getSessionWithApiKey(request)
+  if (!session) {
+    throw json({ error: 'unauthorized' }, { status: 401 })
+  }
   const org = await ensureOrg(session.userId, session.user.name)
   return { session, org }
 }

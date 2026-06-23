@@ -223,6 +223,7 @@ export const apikey = s.sqliteTable('apikey', {
 }, (table) => [
   s.index('apikey_reference_id_idx').on(table.referenceId),
   s.index('apikey_config_id_idx').on(table.configId),
+  s.index('apikey_key_idx').on(table.key),
 ])
 
 // ── Relations (v2 API) ──────────────────────────────────────────────
