@@ -121,53 +121,60 @@ export const orgMember = s.sqliteTable('org_member', {
   s.uniqueIndex('org_member_user_id_unique').on(table.userId),
 ])
 
-// ── Cloud browsers (Browser Use profiles tied to an org) ────────────
+// ── Subscriptions (Stripe) ───────────────────────────────────────────
+// One active subscription per org. The subscription's line item quantity
+// determines the max concurrent cloud browser sessions the org can run.
+// Upserted idempotently by the Stripe webhook on subscription events.
 
-// TODO(subscription): gate cloud browser creation behind active subscription
-export const cloudBrowser = s.sqliteTable('cloud_browser', {
-  id: s.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
+export const subscription = s.sqliteTable('subscription', {
+  /** Stripe subscription ID (sub_xxx) */
+  subscriptionId: s.text('subscription_id').primaryKey().notNull(),
   orgId: s.text('org_id').notNull().references(() => org.id, { onDelete: 'cascade' }),
-  name: s.text('name').notNull(),
-  /** Browser Use profile id for persistent browser state (cookies, localStorage, etc.) */
-  browserUseProfileId: s.text('browser_use_profile_id'),
-  /** Default proxy region for sessions spawned from this browser */
-  defaultRegion: s.text('default_region'),
+  /** Stripe customer ID (cus_xxx) — denormalized from org for webhook resolution */
+  customerId: s.text('customer_id'),
+  /** Stripe price ID (price_xxx) */
+  priceId: s.text('price_id'),
+  /** Stripe product ID (prod_xxx) */
+  productId: s.text('product_id'),
+  /** active, trialing, past_due, canceled, incomplete, incomplete_expired, paused, unpaid */
+  status: s.text('status').notNull(),
+  /** Subscription quantity — determines max concurrent cloud sessions */
+  quantity: s.integer('quantity', { mode: 'number' }).notNull().default(1),
+  /** Human-readable plan name (e.g. "Pro Monthly") */
+  planName: s.text('plan_name'),
+  /** Current billing period start (epoch ms) */
+  currentPeriodStart: epochMs('current_period_start'),
+  /** Current billing period end (epoch ms) */
+  currentPeriodEnd: epochMs('current_period_end'),
+  /** Whether subscription auto-cancels at period end */
+  cancelAtPeriodEnd: s.integer('cancel_at_period_end', { mode: 'boolean' }).notNull().default(false),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
 }, (table) => [
-  s.index('cloud_browser_org_id_idx').on(table.orgId),
+  s.index('subscription_org_id_idx').on(table.orgId),
 ])
 
-// ── Cloud sessions (active Browser Use sessions) ────────────────────
+// ── Cloud sessions (active Browser Use VMs owned by an org) ─────────
+// Each row maps an org to an active Browser Use browser VM.
+// VM status, cdpUrl, cost, etc. are queried from Browser Use API on
+// demand (source of truth) — not duplicated here.
+// Row exists while a BU VM is associated with an org; deleted when
+// the VM is stopped or discovered dead.
 
-// TODO(subscription): gate cloud session creation behind active subscription
-// Org is derived from cloudBrowser.orgId via the FK relationship.
-// Not stored directly on cloudSession to avoid drift between the two.
 export const cloudSession = s.sqliteTable('cloud_session', {
   id: s.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
-  cloudBrowserId: s.text('cloud_browser_id').notNull().references(() => cloudBrowser.id, { onDelete: 'cascade' }),
-  /** Browser Use session id for CDP connection */
-  browserUseSessionId: s.text('browser_use_session_id'),
-  /** CDP WebSocket URL for connecting Playwright */
-  cdpUrl: s.text('cdp_url'),
-  /** Proxy region used for this session */
-  proxyRegion: s.text('proxy_region'),
-  /** Whether media (images, videos) is blocked to save bandwidth */
-  blockMedia: s.integer('block_media', { mode: 'boolean' }).notNull().default(false),
-  status: s.text('status', {
-    enum: ['creating', 'running', 'stopped', 'error'],
-  }).notNull().default('creating'),
-  lastActivityAt: epochMs('last_activity_at'),
+  orgId: s.text('org_id').notNull().references(() => org.id, { onDelete: 'cascade' }),
+  /** Browser Use browser session UUID — used to call getBrowser/stopBrowser */
+  browserUseSessionId: s.text('browser_use_session_id').notNull(),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
-  updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
 }, (table) => [
-  s.index('cloud_session_cloud_browser_id_idx').on(table.cloudBrowserId),
+  s.index('cloud_session_org_id_idx').on(table.orgId),
 ])
 
 // ── Relations (v2 API) ──────────────────────────────────────────────
 
 export const relations = defineRelations(
-  { user, session, account, verification, deviceCode, org, orgMember, cloudBrowser, cloudSession },
+  { user, session, account, verification, deviceCode, org, orgMember, subscription, cloudSession },
   (r) => ({
     user: {
       sessions: r.many.session(),
@@ -189,7 +196,8 @@ export const relations = defineRelations(
     },
     org: {
       members: r.many.orgMember(),
-      cloudBrowsers: r.many.cloudBrowser(),
+      subscriptions: r.many.subscription(),
+      cloudSessions: r.many.cloudSession(),
       users: r.many.user({
         from: r.org.id.through(r.orgMember.orgId),
         to: r.user.id.through(r.orgMember.userId),
@@ -199,12 +207,11 @@ export const relations = defineRelations(
       org: r.one.org({ from: r.orgMember.orgId, to: r.org.id }),
       user: r.one.user({ from: r.orgMember.userId, to: r.user.id }),
     },
-    cloudBrowser: {
-      org: r.one.org({ from: r.cloudBrowser.orgId, to: r.org.id }),
-      sessions: r.many.cloudSession(),
+    subscription: {
+      org: r.one.org({ from: r.subscription.orgId, to: r.org.id }),
     },
     cloudSession: {
-      cloudBrowser: r.one.cloudBrowser({ from: r.cloudSession.cloudBrowserId, to: r.cloudBrowser.id }),
+      org: r.one.org({ from: r.cloudSession.orgId, to: r.org.id }),
     },
   }),
 )
