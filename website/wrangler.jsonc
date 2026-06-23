@@ -11,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "playwriter-db",
-      "database_id": "TODO_CREATE_WITH_WRANGLER_D1_CREATE",
+      "database_id": "8a088c7d-bfeb-4de5-a607-de92b551e410",
       "migrations_dir": "../db/drizzle",
       "migrations_pattern": "../db/drizzle/*/migration.sql"
     }
@@ -22,7 +22,9 @@
       "BETTER_AUTH_URL",
       "GOOGLE_CLIENT_ID",
       "GOOGLE_CLIENT_SECRET",
-      "BROWSER_USE_API_KEY"
+      "BROWSER_USE_API_KEY",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET"
     ]
   },
 
@@ -36,7 +38,7 @@
         {
           "binding": "DB",
           "database_name": "playwriter-preview-db",
-          "database_id": "TODO_CREATE_WITH_WRANGLER_D1_CREATE",
+          "database_id": "97e2e210-8df0-4b5f-8be4-ad2a39718209",
           "migrations_dir": "../db/drizzle",
           "migrations_pattern": "../db/drizzle/*/migration.sql"
         }
@@ -47,7 +49,9 @@
           "BETTER_AUTH_URL",
           "GOOGLE_CLIENT_ID",
           "GOOGLE_CLIENT_SECRET",
-          "BROWSER_USE_API_KEY"
+          "BROWSER_USE_API_KEY",
+          "STRIPE_SECRET_KEY",
+          "STRIPE_WEBHOOK_SECRET"
         ]
       }
     }
