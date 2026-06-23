@@ -15,7 +15,7 @@ import { env } from 'cloudflare:workers'
 import * as orm from 'drizzle-orm'
 import * as schema from 'db/schema'
 import { getDb } from './db.ts'
-import { BrowserUseClient } from './lib/browser-use.ts'
+import { BrowserUseClient, BrowserUseApiError } from './lib/browser-use.ts'
 import { ACTIVE_SUBSCRIPTION_STATUSES } from './lib/billing-rules.ts'
 
 function getBrowserUse() {
@@ -82,10 +82,14 @@ export async function enforceProxyBudgets(): Promise<void> {
     const row = rows[i]!
     const result = buResults[i]!
 
-    // BU API failed entirely (404, network error) — no cost data available,
-    // just mark as dead for cleanup.
+    // BU API failed. Only treat confirmed 404 as dead (VM is gone).
+    // Transient errors (500, rate limit, network) leave the row intact
+    // so the next cron tick can retry.
     if (result.status === 'rejected') {
-      deadSessionIds.push(row.session.id)
+      const err = result.reason
+      if (err instanceof BrowserUseApiError && err.status === 404) {
+        deadSessionIds.push(row.session.id)
+      }
       continue
     }
 

@@ -9,7 +9,7 @@ import { z } from 'zod'
 import * as orm from 'drizzle-orm'
 import * as schema from 'db/schema'
 import { getDb, requireOrgSession } from './db.ts'
-import { BrowserUseClient } from './lib/browser-use.ts'
+import { BrowserUseClient, BrowserUseApiError } from './lib/browser-use.ts'
 import type { BrowserSession } from './lib/browser-use.ts'
 import { ACTIVE_SUBSCRIPTION_STATUSES } from './lib/billing-rules.ts'
 
@@ -94,8 +94,51 @@ function checkSlotOccupied(
   return 'needs-api-check'
 }
 
-/** Check if a cloud session's BU VM is still alive. Returns null if dead
- *  and pushes the row ID into deadIds for the caller to batch-delete. */
+/** Parse Browser Use proxyCost string (e.g. "0.05") to integer cents. */
+function parseCostToCents(proxyCost: string): number {
+  const parsed = parseFloat(proxyCost)
+  if (Number.isNaN(parsed)) return 0
+  return Math.round(parsed * 100)
+}
+
+/** Record final proxy cost delta for a session being removed, then delete the row.
+ *  Atomically increments org.proxySpendCents by the delta between the session's
+ *  lastProxyCostCents baseline and the final BU proxyCost. If no BU session data
+ *  is available (e.g. VM already gone), skips the cost update. */
+async function recordFinalCostAndDelete({
+  cloudSession,
+  buSession,
+  orgId,
+}: {
+  cloudSession: typeof schema.cloudSession.$inferSelect
+  buSession: BrowserSession | null
+  orgId: string
+}): Promise<void> {
+  const db = getDb()
+  const finalCostCents = buSession ? parseCostToCents(buSession.proxyCost) : 0
+  const deltaCents = Math.max(0, finalCostCents - cloudSession.lastProxyCostCents)
+
+  if (deltaCents > 0) {
+    // Atomic increment + delete in one batch to avoid partial state
+    await db.batch([
+      db.update(schema.org)
+        .set({
+          proxySpendCents: orm.sql`${schema.org.proxySpendCents} + ${deltaCents}`,
+          updatedAt: Date.now(),
+        })
+        .where(orm.eq(schema.org.id, orgId)),
+      db.delete(schema.cloudSession)
+        .where(orm.eq(schema.cloudSession.id, cloudSession.id)),
+    ])
+  } else {
+    await db.delete(schema.cloudSession)
+      .where(orm.eq(schema.cloudSession.id, cloudSession.id))
+  }
+}
+
+/** Check if a cloud session's BU VM is still alive. Returns null if dead.
+ *  On confirmed 404: records final cost and pushes ID into deadIds for cleanup.
+ *  On transient errors (500, network): leaves the row for next cron/status retry. */
 async function resolveActiveSession(
   row: typeof schema.cloudSession.$inferSelect,
   bu: BrowserUseClient,
@@ -106,11 +149,18 @@ async function resolveActiveSession(
     if (vm.status === 'active') {
       return vm
     }
-  } catch {
-    // BU returned 404 or error, VM is gone
+    // VM is stopped — record final cost and mark as dead
+    await recordFinalCostAndDelete({ cloudSession: row, buSession: vm, orgId: row.orgId })
+    deadIds.push(row.id)
+    return null
+  } catch (err) {
+    // Only treat confirmed 404 as dead. Transient errors (500, rate limit,
+    // network) leave the row intact so the next check can retry.
+    if (err instanceof BrowserUseApiError && err.status === 404) {
+      deadIds.push(row.id)
+    }
+    return null
   }
-  deadIds.push(row.id)
-  return null
 }
 
 /** Delete dead cloud session rows in one statement. Idempotent: concurrent
@@ -372,18 +422,22 @@ export const cloudApp = new Spiceflow({ basePath: '/api/cloud' })
         throw json({ error: 'cloud session not found' }, { status: 404 })
       }
 
-      // Stop the BU VM
+      // Stop the BU VM and capture final cost before deleting the row.
+      // stopBrowser returns the final session state including proxyCost.
+      let buSession: BrowserSession | null = null
       try {
-        await bu.stopBrowser(cloudSession.browserUseSessionId)
+        buSession = await bu.stopBrowser(cloudSession.browserUseSessionId)
       } catch {
-        // VM might already be stopped
+        // VM might already be stopped; try to get final state
+        try {
+          buSession = await bu.getBrowser(cloudSession.browserUseSessionId)
+        } catch {
+          // VM is gone, no cost data available
+        }
       }
 
-      // Remove the mapping row
-      await db
-        .delete(schema.cloudSession)
-        .where(orm.eq(schema.cloudSession.id, cloudSession.id))
-        .limit(1)
+      // Record final proxy cost delta and delete the session row
+      await recordFinalCostAndDelete({ cloudSession, buSession, orgId: org.id })
 
       return { ok: true }
     },

@@ -5,6 +5,19 @@
 
 const BU_BASE = 'https://api.browser-use.com/api/v3'
 
+/** Typed error from Browser Use API with HTTP status code.
+ *  Use `error.status` to distinguish transient failures (500, 429)
+ *  from confirmed-gone (404) when deciding whether to retry or delete. */
+export class BrowserUseApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+    this.name = 'BrowserUseApiError'
+  }
+}
+
 export interface BrowserSession {
   id: string
   status: 'active' | 'stopped'
@@ -79,8 +92,9 @@ export class BrowserUseClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      throw new Error(
+      throw new BrowserUseApiError(
         `Browser Use API error: ${response.status} ${response.statusText} — ${text}`,
+        response.status,
       )
     }
 
