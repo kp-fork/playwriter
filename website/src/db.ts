@@ -74,7 +74,16 @@ export async function getSession(request: RequestHeaders): Promise<Session | nul
   if (!hasCookie && !hasAuthorization) return null
 
   const auth = getAuth()
-  const session = await auth.api.getSession({ headers: request.headers })
+  let session: Awaited<ReturnType<typeof auth.api.getSession>>
+  try {
+    session = await auth.api.getSession({ headers: request.headers })
+  } catch (cause) {
+    // Stale or corrupt BetterAuth cookies can make getSession throw
+    // FAILED_TO_GET_SESSION. Treat that as logged out so protected pages
+    // redirect to /login instead of rendering a 500 error.
+    console.error('Failed to get auth session:', cause)
+    return null
+  }
   if (!session) return null
   return {
     userId: session.user.id,
