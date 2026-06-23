@@ -1941,7 +1941,8 @@ export async function startPlayWriterCDPRelayServer({
         }
       }
 
-      return c.json(result)
+      const isCloud = cloudSessionTracking.has(sessionId)
+      return c.json({ ...result, isCloud })
     } catch (error: any) {
       logger?.error('Execute endpoint error:', error)
       return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)

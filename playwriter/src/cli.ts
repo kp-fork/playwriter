@@ -282,6 +282,7 @@ async function executeCode(options: {
       images: Array<{ data: string; mimeType: string }>
       screenshots: Array<{ path: string; base64: string; snapshot: string; labelCount: number }>
       isError: boolean
+      isCloud?: boolean
     }
 
     // Print output
@@ -323,6 +324,10 @@ async function executeCode(options: {
           emittedImages.add(img.data)
         }
       }
+    }
+
+    if (result.isCloud) {
+      console.error(pc.dim(`\nCloud session. Run \`playwriter session delete ${sessionId}\` when done to stop the cloud browser.`))
     }
 
     if (result.isError) {
