@@ -1941,8 +1941,10 @@ export async function startPlayWriterCDPRelayServer({
         }
       }
 
-      const isCloud = cloudSessionTracking.has(sessionId)
-      return c.json({ ...result, isCloud })
+      // Use the cloudTracking snapshot captured before execute (not a fresh
+      // map lookup) so long-running executes that outlive idle cleanup still
+      // report isCloud correctly.
+      return c.json({ ...result, isCloud: Boolean(cloudTracking) })
     } catch (error: any) {
       logger?.error('Execute endpoint error:', error)
       return c.json({ text: `Server error: ${error.message}`, images: [], screenshots: [], isError: true }, 500)

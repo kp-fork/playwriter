@@ -327,7 +327,7 @@ async function executeCode(options: {
     }
 
     if (result.isCloud) {
-      console.error(pc.dim(`\nCloud session. Run \`playwriter session delete ${sessionId}\` when done to stop the cloud browser.`))
+      console.error(pc.dim(`\nCloud session. Run \`playwriter session delete ${sessionId}\` when done.`))
     }
 
     if (result.isError) {
