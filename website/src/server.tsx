@@ -73,12 +73,10 @@ export const app = new Spiceflow()
       if (session) throw redirect('/dashboard')
       const callbackURL = normalizeAuthRedirectPath(query.callbackURL)
       const { SignInButton } = await import('./components/login-button.tsx')
-      const { AuthPage, PlaywriterLogo } = await import('./components/auth-page.tsx')
+      const { AuthPage } = await import('./components/auth-page.tsx')
       return (
         <AuthPage
-          title="Playwriter"
-          visualTitle={<PlaywriterLogo imageClassName="h-8" />}
-          headTitle="Sign in"
+          title="Sign in"
           description="Sign in to manage your cloud browsers."
           footer={
             <SignInButton href={router.href('/login/google', { callbackURL })}>
@@ -125,6 +123,7 @@ export const app = new Spiceflow()
     const { BillingPanel } = await import('./components/billing-panel.tsx')
     const { ApiKeyPanel } = await import('./components/api-key-panel.tsx')
     const { QuickStartPanel } = await import('./components/quick-start-panel.tsx')
+    const { CloudSessionsPanel } = await import('./components/cloud-sessions-panel.tsx')
 
     const { PlaywriterLogo } = await import('./components/auth-page.tsx')
 
@@ -146,6 +145,11 @@ export const app = new Spiceflow()
 
         </div>
         <BillingPanel subscription={subscription} />
+        {subscription && (
+          <div className="mt-6">
+            <CloudSessionsPanel totalSlots={subscription.quantity} />
+          </div>
+        )}
         <div className="mt-6">
           <QuickStartPanel />
         </div>
