@@ -76,7 +76,7 @@ export const app = new Spiceflow()
       const { AuthPage } = await import('./components/auth-page.tsx')
       return (
         <AuthPage
-          title="Sign in"
+          title=""
           description="Sign in to manage your cloud browsers."
           footer={
             <SignInButton href={router.href('/login/google', { callbackURL })}>
