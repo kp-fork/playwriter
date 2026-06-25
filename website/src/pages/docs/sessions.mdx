@@ -1,0 +1,132 @@
+---
+title: Multi-Agent Browser Sessions with Isolated State
+sidebarTitle: Sessions
+description: Run multiple AI agents on the same browser without interference. Each session has isolated state that persists across calls.
+icon: lucide:layers
+---
+
+Sessions let you run **multiple agents at once** without interference. Each session is an isolated sandbox with its own `state` object. Variables, pages, and listeners persist between calls. Browser tabs are shared, but state is not.
+
+## Creating sessions
+
+```bash
+playwriter session new    # => 1
+playwriter session new    # => 2
+
+# List all sessions with their stored keys
+playwriter session list
+# ID  State Keys
+# --------------
+# 1   myPage, userData
+# 2   -
+```
+
+Pass `-s <id>` to all commands to use a specific session:
+
+```bash
+playwriter -s 1 -e "state.users = ['Alice', 'Bob']"
+playwriter -s 2 -e "console.log(state.users)"  # undefined (isolated)
+```
+
+## State persistence
+
+The `state` object persists between execute calls **within the same session**. Use it to store pages, data, listeners, and anything else you need across calls:
+
+```js
+// Call 1: store data
+state.page = context.pages().find(p => p.url() === 'about:blank') ?? await context.newPage()
+await state.page.goto('https://example.com')
+state.results = []
+
+// Call 2: data is still there
+console.log(state.results.length) // 0
+state.results.push(await state.page.title())
+```
+
+## Pages are shared, state is not
+
+`context.pages()` returns all browser tabs with Playwriter enabled, **shared across all sessions**. Multiple agents see the same tabs. To avoid interference, always **get your own page**:
+
+```js
+// First call: grab an empty tab or create one, navigate immediately
+state.page = context.pages().find(p => p.url() === 'about:blank') ?? await context.newPage()
+await state.page.goto('https://example.com')
+// Store in state.page and use it for ALL subsequent operations
+```
+
+Navigate **in the same call** as creating the page. This prevents another agent from grabbing the same `about:blank` tab between execute calls.
+
+## Handle page closures
+
+The user may close your tab. Always check before using it:
+
+```js
+if (!state.page || state.page.isClosed()) {
+  state.page = context.pages().find(p => p.url() === 'about:blank') ?? await context.newPage()
+}
+await state.page.goto('https://example.com')
+```
+
+## Using existing pages
+
+Only use a page from `context.pages()` if the user explicitly asks you to control a specific tab:
+
+```js
+const pages = context.pages().filter(x => x.url().includes('myapp.com'))
+if (pages.length === 0) throw new Error('No myapp.com page found')
+state.targetPage = pages[0]
+```
+
+## Session management
+
+```bash
+# Reset a session (reconnect browser, clear state)
+playwriter session reset 1
+
+# Delete a session
+playwriter session delete 1
+
+# List all sessions
+playwriter session list
+```
+
+## Context variables
+
+Every session has access to these globals:
+
+| Variable | Description |
+|---|---|
+| `state` | Persisted object, isolated per session |
+| `page` | Default page (shared, prefer `state.page`) |
+| `context` | Browser context, access all pages via `context.pages()` |
+| `require` | Load Node.js modules (`path`, `fs`, `crypto`, etc.) |
+| `fetch` | Standard fetch API |
+| `Buffer`, `URL`, `URLSearchParams` | Standard globals |
+| `setTimeout`, `setInterval` | Timers |
+| `crypto`, `process` | Node.js globals |
+
+## Popup handling
+
+Popup windows (`window.open`, OAuth login flows, `target=_blank`) are **auto-relocated to tabs** in the main window by the extension. The new tab appears in `context.pages()`:
+
+```js
+await state.page.locator('button:has-text("Login with Google")').click()
+await state.page.waitForTimeout(1000)
+
+// New tab is the last page
+const pages = context.pages()
+const loginPage = pages[pages.length - 1]
+await loginPage.locator('[data-email]').first().click()
+```
+
+You'll receive a `[WARNING] New page opened from current page (index N, initial url: ...)` message pointing to the new tab.
+
+## Clean up
+
+Always clean up listeners at the end of your message to prevent memory leaks:
+
+```js
+state.page.removeAllListeners()
+```
+
+Never call `browser.close()` or `context.close()`. Only close pages you created yourself.

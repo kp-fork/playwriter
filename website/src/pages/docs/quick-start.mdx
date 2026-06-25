@@ -1,0 +1,129 @@
+---
+title: "Quick Start: Automate Chrome in 2 Minutes"
+sidebarTitle: Quick Start
+description: Install the Chrome extension, set up the CLI, and run your first browser automation commands with Playwriter.
+icon: lucide:zap
+---
+
+## Core workflow
+
+Every Playwriter automation follows this pattern:
+
+```bash
+# 1. Create a session
+playwriter session new          # outputs: 1
+
+# 2. Navigate
+playwriter -s 1 -e "state.page = context.pages().find(p => p.url() === 'about:blank') ?? await context.newPage(); await state.page.goto('https://example.com')"
+
+# 3. Observe (snapshot to see interactive elements)
+playwriter -s 1 -e "snapshot({ page: state.page })"
+
+# 4. Act (use locators from the snapshot)
+playwriter -s 1 -e "await state.page.locator('role=link[name=\"More information...\"]').click()"
+
+# 5. Observe again (verify the action worked)
+playwriter -s 1 -e "console.log('URL:', state.page.url()); console.log(await snapshot({ page: state.page })); console.log(await getLatestLogs({ page: state.page, sinceLastCall: true }))"
+```
+
+Always **observe before and after** every action. Never chain multiple clicks blindly.
+
+## Prerequisites
+
+**Chrome or Chromium** installed, **Node.js 18+**, and a terminal.
+
+## Step 1: Install the extension
+
+Install the [Chrome extension](https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe) from the Chrome Web Store, then click the extension icon on a tab. It turns **green** when connected.
+
+## Step 2: Install the CLI
+
+```bash
+npm install -g playwriter
+```
+
+Or use without installing:
+
+```bash
+npx playwriter@latest session new
+```
+
+## Step 3: Install the skill (for agents)
+
+The **skill** teaches AI agents how to use Playwriter: which selectors to prefer, how to read snapshots, available utilities, and best practices.
+
+```bash
+npx -y skills add remorses/playwriter
+```
+
+## Step 4: Run your first commands
+
+```bash
+# Create a new session
+playwriter session new
+
+# Navigate to a page
+playwriter -s 1 -e "state.page = context.pages().find(p => p.url() === 'about:blank') ?? await context.newPage(); await state.page.goto('https://example.com')"
+
+# Get an accessibility snapshot
+playwriter -s 1 -e "snapshot({ page: state.page })"
+
+# Click a link using the locator from the snapshot
+playwriter -s 1 -e "await state.page.locator('role=link[name=\"More information...\"]').click()"
+
+# Take a screenshot
+playwriter -s 1 -e "await state.page.screenshot({ path: './example.png', scale: 'css' })"
+```
+
+## Using with MCP
+
+For AI assistants (Claude, Cursor, OpenCode, etc.), configure the MCP server instead of the CLI:
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"]
+    }
+  }
+}
+```
+
+The MCP exposes a single **`execute`** tool that accepts any Playwright code. Your agent sends JavaScript and gets back the result, snapshots, and screenshots automatically.
+
+See the full [MCP setup guide](./mcp-setup.mdx) for more options.
+
+## Alternative: headless mode
+
+If you don't want to use your personal browser, launch a **headless Chrome** instead:
+
+```bash
+# Download Chrome for Testing (first time only)
+playwriter browser install
+
+# Create a session with headless Chrome
+playwriter session new --browser headless
+
+# Use it normally
+playwriter -s 1 -e "state.page = await context.newPage(); await state.page.goto('https://example.com')"
+```
+
+See the [headless mode guide](./headless.mdx) for details.
+
+## Alternative: direct CDP
+
+Connect to any Chrome instance with remote debugging enabled, no extension needed:
+
+```bash
+playwriter session new --direct
+```
+
+See the [CLI reference](./cli.mdx) for all connection options.
+
+## Next steps
+
+- [Snapshots & diffing](./snapshots.mdx) for reading page state
+- [Visual labels](./visual-labels.mdx) for spatial element discovery
+- [Sessions](./sessions.mdx) for multi-agent isolation
+- [CLI reference](./cli.mdx) for all commands and flags

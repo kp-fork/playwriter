@@ -1,0 +1,133 @@
+---
+title: Headless Chrome, Direct CDP, and CI Setup
+sidebarTitle: Headless & CDP
+description: Run Playwriter with headless Chrome for CI and servers, connect directly to any Chrome via CDP, or use cloud browser providers without an extension.
+icon: lucide:monitor-off
+---
+
+Launch a **headless Chrome** automatically with no extension setup and no user browser involvement. Useful when the user doesn't want their personal browser used, in CI/server environments, or for fully autonomous automation.
+
+## Quick start
+
+```bash
+# Install Chrome for Testing (first time only)
+playwriter browser install
+
+# Launch headless Chrome and create a session
+playwriter session new --browser headless
+
+# Use the session normally
+playwriter -s 1 -e "state.page = await context.newPage(); await state.page.goto('https://example.com')"
+playwriter -s 1 -e "snapshot({ page: state.page })"
+```
+
+## How it works
+
+`--browser headless` launches a headless Chromium process and connects to it via CDP, bypassing the extension entirely. Multiple sessions **reuse the same Chrome process**, so creating additional sessions is instant.
+
+If no Chrome binary is found, Playwriter will tell you to run `playwriter browser install` first to download Chrome for Testing.
+
+## Browser management
+
+```bash
+# Download Chrome for Testing
+playwriter browser install
+
+# Start Chrome manually (headed, with custom profile)
+playwriter browser start --user-data-dir ./my-profile
+playwriter browser start --headed
+
+# List available browsers
+playwriter browser list
+```
+
+### browser start options
+
+| Flag | Description |
+|---|---|
+| `--user-data-dir <dir>` | Persistent profile directory |
+| `--headless` | Headless mode (default) |
+| `--headed` | Show browser window |
+| `--disable-sandbox` | Disable Chrome sandbox (needed in some Docker setups) |
+
+## Direct CDP connection
+
+Connect to any Chrome instance with remote debugging enabled, including cloud browser providers:
+
+```bash
+# Auto-discover local Chrome with debugging enabled
+playwriter session new --direct
+
+# Explicit WebSocket endpoint
+playwriter session new --direct ws://localhost:9222/devtools/browser/...
+
+# Cloud browser provider
+playwriter session new --direct wss://xxx.cdp.browser-use.com
+
+# Remote host:port (auto-resolves to ws://)
+playwriter session new --direct 192.168.1.50:9222
+```
+
+### Enable remote debugging in Chrome
+
+Either:
+- Open `chrome://inspect/#remote-debugging` in Chrome
+- Launch Chrome with `--remote-debugging-port=9222`
+- Use `playwriter browser start` (enables debugging automatically)
+
+## MCP configuration for headless
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"],
+      "env": {
+        "PLAYWRITER_DIRECT": "1"
+      }
+    }
+  }
+}
+```
+
+`PLAYWRITER_DIRECT` accepts:
+
+| Value | Behavior |
+|---|---|
+| `1` | Auto-discover Chrome on port 9222 |
+| `ws://` or `wss://` URL | Explicit WebSocket endpoint |
+| `host:port` | Resolves via HTTP probe to ws:// URL |
+
+## CI / Docker
+
+For CI environments, combine headless mode with `--disable-sandbox`:
+
+```bash
+playwriter browser install
+playwriter session new --browser headless
+playwriter -s 1 -e "state.page = await context.newPage(); await state.page.goto('https://example.com')"
+```
+
+Or connect to a Chrome instance running in the CI environment:
+
+```bash
+# Start Chrome with remote debugging
+google-chrome --headless --remote-debugging-port=9222 --no-sandbox &
+
+# Connect to it
+playwriter session new --direct localhost:9222
+```
+
+## Limitations
+
+| Feature | Extension mode | Headless / Direct CDP |
+|---|---|---|
+| Screen recording | Yes | No |
+| Ghost cursor | Yes | No |
+| Tab grouping | Yes | No |
+| All Playwright APIs | Yes | Yes |
+| Snapshots | Yes | Yes |
+| Visual labels | Yes | Yes |
+| Debugger & editor | Yes | Yes |
+| Network interception | Yes | Yes |

@@ -1,0 +1,164 @@
+---
+title: Configuration, Environment Variables, and MCP Setup Options
+sidebarTitle: Configuration
+description: All Playwriter environment variables, CLI flags, MCP server configuration examples for Claude, Cursor, and OpenCode, and remote connection options.
+icon: lucide:settings
+---
+
+Playwriter is configured through **CLI flags** and **environment variables**. No config files needed.
+
+## Environment variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `PLAYWRITER_HOST` | Remote relay server URL | `ws://localhost:19988` |
+| `PLAYWRITER_TOKEN` | Auth token for remote connections | - |
+| `PLAYWRITER_DIRECT` | CDP connection mode (see below) | - |
+| `PLAYWRITER_API_KEY` | API key for cloud browsers | - |
+
+### PLAYWRITER_DIRECT
+
+Connect directly to Chrome's DevTools Protocol, bypassing the extension:
+
+| Value | Behavior |
+|---|---|
+| `1` | Auto-discover Chrome on port 9222 |
+| `ws://...` or `wss://...` | Explicit WebSocket endpoint |
+| `host:port` | Resolves via HTTP probe to ws:// URL |
+
+```bash
+# Auto-discover local Chrome
+PLAYWRITER_DIRECT=1 playwriter session new
+
+# Cloud browser provider
+PLAYWRITER_DIRECT=wss://xxx.cdp.browser-use.com playwriter session new
+```
+
+### PLAYWRITER_HOST and PLAYWRITER_TOKEN
+
+For [remote access](./remote-access.mdx), point to a relay server running on another machine:
+
+```bash
+export PLAYWRITER_HOST=https://my-tunnel.traforo.dev
+export PLAYWRITER_TOKEN=MY_SECRET
+playwriter session new
+```
+
+## CLI global flags
+
+| Flag | Description |
+|---|---|
+| `-s, --session <id>` | Session ID (required for `-e`, `-f`) |
+| `-e <code>` | Execute JavaScript code inline |
+| `-f <path>` | Execute JavaScript from a file |
+| `--host <host>` | Remote relay server host |
+| `--token <token>` | Auth token for remote connections |
+| `--timeout <ms>` | Execution timeout (default: 10000) |
+| `--patchright` | Use @playwriter/patchright-core for stealth |
+
+## Session new flags
+
+| Flag | Description |
+|---|---|
+| `--browser <key>` | Browser type: extension ID, `headless`, `cloud`, `direct:port` |
+| `--direct [endpoint]` | Direct CDP: auto-discover or explicit endpoint |
+| `--proxy <region>` | Cloud proxy region (us, de, jp, etc.) |
+| `--custom-proxy <url>` | Custom proxy (host:port or user:pass@host:port) |
+| `--timeout <minutes>` | Cloud browser timeout (1-240, default 60) |
+| `--disable-proxy-bandwidth-acceleration` | Load images/video with proxy |
+
+## Browser start flags
+
+| Flag | Description |
+|---|---|
+| `--user-data-dir <dir>` | Persistent profile directory |
+| `--headless` | Headless mode |
+| `--headed` | Show browser window |
+| `--disable-sandbox` | Disable Chrome sandbox |
+
+## Serve flags
+
+| Flag | Description |
+|---|---|
+| `--host [host]` | Bind host (default: `0.0.0.0`) |
+| `--token <token>` | Auth token (required for public hosts) |
+| `--replace` | Kill existing server on the port |
+
+## MCP configuration examples
+
+### Basic (extension mode)
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"]
+    }
+  }
+}
+```
+
+### Direct CDP
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"],
+      "env": {
+        "PLAYWRITER_DIRECT": "1"
+      }
+    }
+  }
+}
+```
+
+### Cloud browser provider
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"],
+      "env": {
+        "PLAYWRITER_DIRECT": "wss://xxx.cdp.browser-use.com"
+      }
+    }
+  }
+}
+```
+
+### Remote relay
+
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"],
+      "env": {
+        "PLAYWRITER_HOST": "https://my-tunnel.traforo.dev",
+        "PLAYWRITER_TOKEN": "MY_SECRET"
+      }
+    }
+  }
+}
+```
+
+## Debugging configuration
+
+Playwriter logs to files for debugging:
+
+```bash
+# Get log file paths
+playwriter logfile
+# typically: ~/.playwriter/relay-server.log
+
+# CDP JSONL log for protocol debugging
+jq -r '.direction + "\t" + (.message.method // "response")' ~/.playwriter/cdp.jsonl | uniq -c
+```
+
+Both files are recreated every time the relay server starts.

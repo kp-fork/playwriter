@@ -1,0 +1,160 @@
+---
+title: Accessibility Snapshots, Search, and Page Diffing
+sidebarTitle: Snapshots
+description: Read page state as structured text instead of screenshots, search for elements, and track DOM changes with automatic diffing between calls.
+icon: lucide:scan-text
+---
+
+Accessibility snapshots are the **primary way** agents read pages. They return every interactive element as text with Playwright locators attached. **5-20KB instead of 100KB+** for a screenshot; cheaper, faster, and parseable without vision.
+
+## Basic usage
+
+```js
+// Full page snapshot
+await snapshot({ page: state.page })
+
+// Output:
+// - banner:
+//     - link "Home" [id="nav-home"]
+//     - navigation:
+//         - link "Docs" [data-testid="docs-link"]
+//         - link "Blog" role=link[name="Blog"]
+```
+
+Each interactive line ends with a **Playwright locator** you can pass directly to `state.page.locator()`. If multiple elements share the same locator, a `>> nth=N` suffix is added to make it unique.
+
+## Options
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | Page | required | Playwright page to snapshot |
+| `frame` | Frame | - | Snapshot a specific iframe instead |
+| `locator` | Locator | - | Scope snapshot to a subtree |
+| `search` | string \| RegExp | - | Filter results (first 10 matches with context) |
+| `showDiffSinceLastCall` | boolean | `true` | Return diff since last snapshot |
+| `interactiveOnly` | boolean | `false` | Only show interactive elements |
+| `format` | string | - | Output format |
+
+## Search
+
+Filter large pages to find specific elements:
+
+```js
+// Search by string or regex
+await snapshot({ page: state.page, search: /button|submit/i })
+
+// Search for obstacles after navigation
+await snapshot({ page: state.page, search: /cookie|consent|accept|login/i })
+```
+
+Search returns the **first 10 matching lines** with surrounding context. When `search` is provided, diffing is disabled by default so the search filters the full content.
+
+## Automatic diffing
+
+Snapshots return **full content on first call**, then **diffs on subsequent calls**. This saves tokens by only showing what changed.
+
+```js
+// First call: returns full snapshot
+await snapshot({ page: state.page })
+
+// After an action: returns only changes (+ added, - removed)
+await state.page.locator('button').click()
+await snapshot({ page: state.page })
+// Output:
+// - button "Submit"
+// + button "Submit" [disabled]
+// + status "Sending..."
+```
+
+The diff is only returned when it's **shorter than the full content**. If nothing changed, you get: `"No changes since last snapshot"`.
+
+**Control diffing explicitly:**
+
+```js
+// Always get full content (disable diff)
+await snapshot({ page: state.page, showDiffSinceLastCall: false })
+
+// Combine search + diff (both disabled by default, enable explicitly)
+await snapshot({ page: state.page, search: /error/i, showDiffSinceLastCall: true })
+```
+
+## Scoping to elements
+
+Scope a snapshot to a specific part of the page to **dramatically reduce output size**:
+
+```js
+// Full page: ~150 lines (sidebar, nav, header, footer, everything)
+await snapshot({ page: state.page })
+
+// Scoped to main: ~20 lines (just the content area)
+await snapshot({ locator: state.page.locator('main') })
+
+// Scope to a dialog, form, or section
+await snapshot({ locator: state.page.locator('[role="dialog"]') })
+await snapshot({ locator: state.page.locator('form#checkout') })
+```
+
+## Iframe snapshots
+
+Snapshot iframe content using `contentFrame()`:
+
+```js
+const frame = await state.page.locator('iframe').contentFrame()
+await snapshot({ frame })
+```
+
+## Using locators from snapshots
+
+Locators from snapshots map directly to Playwright:
+
+```js
+// Snapshot shows: role=radio[name="Nope, Vanilla"]
+await state.page.getByRole('radio', { name: 'Nope, Vanilla' }).click()
+
+// Snapshot shows: role=link[name="SIGN IN"]
+await state.page.locator('role=link[name="SIGN IN"]').click()
+
+// Snapshot shows: [data-testid="docs-link"]
+await state.page.locator('[data-testid="docs-link"]').click()
+```
+
+**Never invent selectors.** The snapshot output IS the selector. Use it directly.
+
+## Alternative content methods
+
+### getCleanHTML
+
+Get **cleaned HTML** from a locator or page. Automatically removes script/style/svg/head tags, unwraps empty wrappers, and keeps semantic attributes.
+
+```js
+await getCleanHTML({ locator: state.page.locator('body') })
+await getCleanHTML({ locator: state.page, search: /button/i })
+await getCleanHTML({ locator: state.page, showDiffSinceLastCall: false })
+await getCleanHTML({ locator: state.page, includeStyles: true })  // keep class/style attrs
+```
+
+Supports the same **search** and **diffing** behavior as `snapshot()`.
+
+### getPageMarkdown
+
+Extract **main article content** as plain text using Mozilla Readability (same algorithm as Firefox Reader View). Strips navigation, ads, sidebars, and clutter.
+
+```js
+const content = await getPageMarkdown({ page: state.page })
+// Output:
+// # Article Title
+// Author: John Doe | Site: example.com | Published: 2024-01-15
+// > Article excerpt or description
+// The main article content as plain text...
+```
+
+Also supports `search` and `showDiffSinceLastCall`.
+
+## When to use which
+
+| Method | Best for | Output |
+|---|---|---|
+| `snapshot()` | Interactive elements, forms, navigation | Accessibility tree with locators |
+| `getCleanHTML()` | Raw HTML structure, style debugging | Cleaned HTML |
+| `getPageMarkdown()` | Articles, blog posts, documentation | Plain text with title/author |
+| `screenshotWithAccessibilityLabels()` | Visual layouts, grids, dashboards | Image + text (see [visual labels](./visual-labels.mdx)) |

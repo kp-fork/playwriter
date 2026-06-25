@@ -1,0 +1,117 @@
+---
+title: Record Browser Automation as MP4 Video
+sidebarTitle: Recording
+description: Record browser sessions as MP4 video that survives page navigation, with ghost cursor overlay and automatic demo acceleration for idle sections.
+icon: lucide:video
+---
+
+Have the agent **record what it's doing** as MP4 video. The recording uses `chrome.tabCapture` and runs in the extension context, so it **survives page navigation**. Unlike `getDisplayMedia`, the extension holds the `MediaRecorder`, not the page.
+
+## Start recording
+
+```js
+await recording.start({
+  page: state.page,
+  outputPath: '/absolute/path/to/recording.mp4',
+  frameRate: 30,
+})
+```
+
+## Navigate and interact
+
+Recording continues across page navigations. No restart needed:
+
+```js
+await state.page.click('a')
+await state.page.waitForLoadState('domcontentloaded')
+await state.page.goBack()
+// Still recording
+```
+
+## Stop and save
+
+```js
+state.recordingResult = await recording.stop({ page: state.page })
+// => { path, duration, executionTimestamps }
+```
+
+Save the full result to `state` because `executionTimestamps` is needed for `createDemoVideo`.
+
+## Options
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | Page | required | Page to record |
+| `outputPath` | string | required | Absolute path for the output MP4 |
+| `frameRate` | number | 30 | Frames per second |
+| `audio` | boolean | false | Record tab audio |
+| `videoBitsPerSecond` | number | 2500000 | Video bitrate |
+| `aspectRatio` | object \| null | `{ width: 16, height: 9 }` | Auto-resize viewport; `null` to skip |
+| `maxDurationMs` | number | 15 min | Auto-stop safety limit; `0` to disable |
+
+## Other recording commands
+
+```js
+// Check if recording is active
+await recording.isRecording({ page: state.page })
+
+// Cancel recording without saving
+await recording.cancel({ page: state.page })
+```
+
+## Ghost cursor
+
+The extension injects a **ghost cursor** overlay on every Playwriter-attached tab. It follows mouse actions automatically, making recordings look natural.
+
+```js
+// Change cursor style
+await ghostCursor.show({ page: state.page, style: 'screenstudio' })
+// Styles: 'minimal' (default), 'dot', 'screenstudio'
+
+// Temporarily hide the cursor
+await ghostCursor.hide({ page: state.page })
+```
+
+For best-looking recordings, use **locator-based interactions** (`locator.click()`, `page.mouse.move()`) instead of `goto()` to show realistic cursor motion.
+
+## Demo video acceleration
+
+After recording, use `createDemoVideo` to **speed up idle sections** (time between execute calls) while keeping interactions at normal speed. Requires `ffmpeg` and `ffprobe` installed.
+
+```js
+// First, stop recording and save the result
+state.recordingResult = await recording.stop({ page: state.page })
+
+// Then in a SEPARATE execute call (with --timeout 120000):
+const demoPath = await createDemoVideo({
+  recordingPath: state.recordingResult.path,
+  durationMs: state.recordingResult.duration,
+  executionTimestamps: state.recordingResult.executionTimestamps,
+  speed: 6,  // default 6x for idle sections
+})
+```
+
+This can take **60-120+ seconds**. Always pass `--timeout 120000` or higher.
+
+## Limitations
+
+- **Extension mode only.** Recording uses `chrome.tabCapture` which requires the extension. Not available in direct CDP mode or headless mode.
+- **User must click the extension icon** on the tab before recording starts.
+- **Auto-stops after 15 minutes** by default. Override with `maxDurationMs`.
+- **Viewport auto-resizes** to 16:9 aspect ratio. Pass `aspectRatio: null` to keep the current size.
+
+## Automatic tab capture
+
+To enable recording without requiring the user to click the extension icon, launch Chrome with these flags:
+
+```bash
+# macOS
+open -a "Google Chrome" --args \
+  --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe \
+  --auto-accept-this-tab-capture
+
+# Linux
+google-chrome \
+  --allowlisted-extension-id=jfeammnjpkecdekppnclgkkffahnhfhe \
+  --auto-accept-this-tab-capture &
+```

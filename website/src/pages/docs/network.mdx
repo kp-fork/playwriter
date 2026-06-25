@@ -1,0 +1,157 @@
+---
+title: Network Interception, API Capture, and Cookie Management
+sidebarTitle: Network
+description: Intercept HTTP requests, capture API responses for scraping, replay endpoints with different parameters, and manage cookies via CDP.
+icon: lucide:wifi
+---
+
+Let the agent **watch network traffic** to reverse-engineer APIs, scrape data behind JavaScript rendering, or debug failing requests. Captured data lives in `state` and persists across calls.
+
+## Capture API calls
+
+Set up listeners to capture requests and responses matching a pattern:
+
+```js
+state.requests = []
+state.responses = []
+
+state.page.on('request', req => {
+  if (req.url().includes('/api/')) {
+    state.requests.push({
+      url: req.url(),
+      method: req.method(),
+      headers: req.headers()
+    })
+  }
+})
+
+state.page.on('response', async res => {
+  if (res.url().includes('/api/')) {
+    try {
+      state.responses.push({
+        url: res.url(),
+        status: res.status(),
+        body: await res.json()
+      })
+    } catch {}
+  }
+})
+```
+
+## Trigger and analyze
+
+After setting up listeners, trigger actions that make API calls:
+
+```js
+await state.page.click('button.load-more')
+// Wait for network activity
+await state.page.waitForTimeout(2000)
+```
+
+Then analyze what was captured:
+
+```js
+console.log('Captured', state.responses.length, 'API calls')
+state.responses.forEach(r => console.log(r.status, r.url.slice(0, 80)))
+```
+
+## Inspect response schemas
+
+Dig into a specific response to understand the API structure:
+
+```js
+const resp = state.responses.find(r => r.url.includes('users'))
+console.log(JSON.stringify(resp.body, null, 2).slice(0, 2000))
+```
+
+## Replay API calls
+
+Replay captured API calls with different parameters. Useful for pagination, authenticated endpoints, and anything behind client-side rendering:
+
+```js
+const { url, headers } = state.requests.find(r => r.url.includes('feed'))
+const data = await state.page.evaluate(async ({ url, headers }) => {
+  const res = await fetch(url, { headers })
+  return res.json()
+}, { url, headers })
+console.log(data)
+```
+
+**Faster than scraping the DOM.** The agent captures real API calls, inspects their schemas, and replays them with different parameters. Works for pagination, authenticated endpoints, and anything behind client-side rendering.
+
+## Authenticated fetches
+
+Fetch from within the page context to **include session cookies automatically**:
+
+```js
+const data = await state.page.evaluate(async url => {
+  const resp = await fetch(url)
+  return await resp.text()
+}, 'https://example.com/protected/resource')
+```
+
+## Cookie management
+
+Read page cookies via CDP:
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+const { cookies } = await cdp.send('Network.getCookies', {
+  urls: [state.page.url()]
+})
+console.log(cookies)
+```
+
+**Clear cookies for a specific domain** (not the entire profile):
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+const { cookies } = await cdp.send('Network.getCookies', {
+  urls: ['https://example.com', 'https://www.example.com']
+})
+for (const cookie of cookies) {
+  await cdp.send('Network.deleteCookies', {
+    name: cookie.name,
+    domain: cookie.domain
+  })
+}
+```
+
+<Note>
+**Never use `Network.clearBrowserCookies`**. It's a profile-wide destructive operation that wipes ALL cookies across every domain. It will log the user out of Gmail, GitHub, and everything else.
+</Note>
+
+## Clean up listeners
+
+Always clean up when done to prevent memory leaks:
+
+```js
+state.page.removeAllListeners('request')
+state.page.removeAllListeners('response')
+```
+
+## Downloads
+
+Capture and save browser downloads:
+
+```js
+const [download] = await Promise.all([
+  state.page.waitForEvent('download'),
+  state.page.click('button.download')
+])
+await download.saveAs(`/absolute/path/${download.suggestedFilename()}`)
+```
+
+For large data that would truncate in console output, trigger a browser download instead:
+
+```js
+await state.page.evaluate(async url => {
+  const resp = await fetch(url)
+  const data = await resp.text()
+  const blob = new Blob([data], { type: 'application/octet-stream' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'data.json'
+  a.click()
+}, 'https://example.com/protected/large-file')
+```

@@ -1,0 +1,93 @@
+---
+title: Security Model and Sandboxed Execution
+sidebarTitle: Security
+description: How Playwriter keeps your browser safe with localhost-only architecture, origin validation, explicit tab consent, and a sandboxed filesystem for code execution.
+icon: lucide:shield
+---
+
+Everything runs **on your machine**. The relay binds to `localhost:19988` and only accepts connections from the extension. No remote server, no account, no telemetry.
+
+## Architecture
+
+```diagram
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                YOUR MACHINE                                              │
+│                                                                                          │
+│  ┌─────────────┐          ┌──────────────────┐          ┌──────────────┐                 │
+│  │  Extension   │◄────────►  Relay Server     │◄────────►  CLI / MCP   │                 │
+│  │  (Chrome)    │   WS     │  localhost:19988  │   WS     │  (Agent)    │                 │
+│  └─────────────┘          └──────────────────┘          └──────────────┘                 │
+│                                                                                          │
+│  Nothing leaves localhost unless you explicitly set up remote access                     │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Security guarantees
+
+**Local only.** The WebSocket server binds to localhost. Nothing leaves your machine unless you explicitly configure [remote access](./remote-access.mdx) with a tunnel and auth token.
+
+**Origin validation.** The extension WebSocket endpoint only accepts the Playwriter extension origin. Browsers cannot spoof the `Origin` header, so malicious websites cannot connect and control your browser. CLI and MCP connect as local Node.js clients on localhost; for remote access, always use [token authentication](./remote-access.mdx).
+
+**Explicit consent.** Only tabs where you clicked the extension icon are controlled. No background access to other tabs. Chrome shows an automation banner on controlled tabs so you always know which tabs are being automated.
+
+**Visible automation.** The Chrome debugger banner is always visible on controlled tabs. You can see everything the agent does in real time.
+
+## Sandboxed filesystem
+
+The `require('node:fs')` module in the execution sandbox is **scoped**. Write operations only succeed in:
+
+| Allowed path | Description |
+|---|---|
+| Session cwd | The directory where `playwriter` CLI was invoked |
+| `/tmp` | System temp directory |
+| `os.tmpdir()` | OS-specific temp (e.g. `/var/folders/.../T/` on macOS) |
+
+Writing to any other path throws `EPERM: operation not permitted, access outside allowed directories`. To save files elsewhere, write to a temp path first, then move the file using a shell command outside the sandbox.
+
+## Sandbox restrictions
+
+The execution sandbox runs in a controlled environment:
+
+- **No `import` statements.** Use `require()` for Node.js modules.
+- **No `__dirname` or `__filename`.** Use `process.cwd()` or absolute paths.
+- **Scoped `require`.** Only safe Node.js built-in modules are available: `path`, `url`, `querystring`, `crypto`, `buffer`, `util`, `assert`, `events`, `timers`, `stream`, `zlib`, `http`, `https`, `os`, and scoped `fs`.
+- **No `process.chdir()`.** Use a new session with a different cwd.
+- **No `browser.close()` or `context.close()`.** These would disconnect all agents.
+
+## Remote access security
+
+When using [remote access](./remote-access.mdx) via Traforo tunnels:
+
+- **Token authentication** is required. The `--token` flag on `playwriter serve` enforces auth on all connections.
+- **Encrypted transport.** Traforo tunnels use Cloudflare's TLS infrastructure.
+- **No port forwarding.** No firewall rules or VPN needed; the tunnel handles everything.
+
+```bash
+# Host machine: serve with auth token
+npx traforo -p 19988 -- playwriter serve --token MY_SECRET
+
+# Remote machine: connect with token
+export PLAYWRITER_HOST=https://my-tunnel.traforo.dev
+export PLAYWRITER_TOKEN=MY_SECRET
+playwriter session new
+```
+
+## Cookie safety
+
+**Never use `Network.clearBrowserCookies`** via CDP. It's a profile-wide destructive operation that wipes ALL cookies across every domain in the user's Chrome profile; Gmail, GitHub, and every authenticated session.
+
+Use scoped cookie operations instead:
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+const { cookies } = await cdp.send('Network.getCookies', {
+  urls: ['https://example.com']
+})
+// Delete individually
+for (const cookie of cookies) {
+  await cdp.send('Network.deleteCookies', {
+    name: cookie.name,
+    domain: cookie.domain
+  })
+}
+```

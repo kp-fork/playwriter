@@ -1,0 +1,170 @@
+---
+title: JavaScript Debugger, Live Code Editor, and CSS Inspector
+sidebarTitle: Debugger & Editor
+description: Set breakpoints, step through JavaScript, inspect variables, live-edit page scripts and CSS at runtime, and inspect React components from the CLI.
+icon: lucide:bug
+---
+
+Things no other browser MCP can do. **Set breakpoints**, step through JavaScript, inspect variables at runtime. **Live-edit page scripts and CSS** without reloading. Full Chrome DevTools Protocol access, not a watered-down subset.
+
+## JavaScript debugger
+
+The `createDebugger` utility gives agents the same power as Chrome DevTools' Sources panel: set breakpoints, step through execution, inspect local variables, and evaluate expressions in scope.
+
+### Setup
+
+```js
+state.cdp = await getCDPSession({ page: state.page })
+state.dbg = createDebugger({ cdp: state.cdp })
+await state.dbg.enable()
+```
+
+### List scripts
+
+Find loaded scripts by name or URL pattern:
+
+```js
+state.scripts = await state.dbg.listScripts({ search: 'app' })
+state.scripts.map(s => s.url)
+// => ['https://example.com/static/app.js', 'https://example.com/static/app-utils.js']
+```
+
+### Set breakpoints
+
+```js
+// By file and line number
+await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42 })
+
+// With a condition
+await state.dbg.setBreakpoint({ file: state.scripts[0].url, line: 42, condition: 'count > 10' })
+```
+
+### Step through code
+
+When execution hits a breakpoint:
+
+```js
+// Inspect local variables in the current scope
+const vars = await state.dbg.inspectLocalVariables()
+console.log(vars)
+
+// Step through execution
+await state.dbg.stepOver()   // next line
+await state.dbg.stepInto()   // into function call
+await state.dbg.stepOut()    // out of current function
+
+// Continue execution
+await state.dbg.resume()
+```
+
+### Pause on exceptions
+
+```js
+await state.dbg.setPauseOnExceptions({ state: 'uncaught' })
+// Options: 'none', 'uncaught', 'all'
+```
+
+### API reference
+
+For the full debugger API, fetch the reference docs:
+
+```bash
+curl https://playwriter.dev/resources/debugger-api.md
+```
+
+## Live code editor
+
+The `createEditor` utility lets agents view and **edit page scripts and CSS at runtime**. Edits are in-memory and persist until the page reloads. Useful for toggling debug flags, patching broken code, or testing quick fixes without touching source files.
+
+### Setup
+
+```js
+state.cdp = await getCDPSession({ page: state.page })
+state.editor = createEditor({ cdp: state.cdp })
+await state.editor.enable()
+```
+
+### Search across all loaded scripts
+
+```js
+const matches = await state.editor.grep({ regex: /console\.log/ })
+matches.forEach(m => console.log(m.url, m.lineNumber, m.lineContent))
+```
+
+### Edit source code
+
+```js
+await state.editor.edit({
+  url: 'https://example.com/app.js',
+  oldString: 'const DEBUG = false',
+  newString: 'const DEBUG = true'
+})
+```
+
+Edits are **in-memory only**. They persist until the page reloads. The editor also supports searching across all loaded scripts with `grep`.
+
+### API reference
+
+For the full editor API, fetch the reference docs:
+
+```bash
+curl https://playwriter.dev/resources/editor-api.md
+```
+
+## CSS inspection
+
+Inspect CSS styles applied to any element, like the browser DevTools "Styles" panel. Returns selector, source location (file:line), and declarations for each matching rule.
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+const styles = await getStylesForLocator({
+  locator: state.page.locator('.btn'),
+  cdp
+})
+console.log(formatStylesAsText(styles))
+```
+
+For the full styles API, fetch the reference docs:
+
+```bash
+curl https://playwriter.dev/resources/styles-api.md
+```
+
+## React component inspection
+
+Inspect React component source locations and props (dev mode only):
+
+```js
+// Get source file location
+const source = await getReactSource({
+  locator: state.page.locator('[data-testid="submit-btn"]')
+})
+// => { fileName: '/src/Button.tsx', lineNumber: 42, columnNumber: 5, componentName: 'Button' }
+
+// Get full component info with props and hierarchy
+const info = await getReactComponentInfo({
+  locator: state.page.locator('[data-testid="submit-btn"]')
+})
+// => { componentName: 'Button', source: {...}, hierarchy: [...], props: {...} }
+```
+
+`getReactComponentInfo` returns `null` for non-React elements and never throws. Props are sanitized so functions, DOM nodes, and circular references don't flood the output.
+
+## Raw CDP access
+
+For anything not covered by the utilities above, use `getCDPSession` to send raw Chrome DevTools Protocol commands:
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+
+// Get page metrics
+const metrics = await cdp.send('Page.getLayoutMetrics')
+
+// Get cookies
+const { cookies } = await cdp.send('Network.getCookies', { urls: [state.page.url()] })
+
+// Performance metrics
+const { metrics: perfMetrics } = await cdp.send('Performance.getMetrics')
+```
+
+Always use `getCDPSession({ page })`, never `context.newCDPSession()`. The latter doesn't work through the Playwriter relay.

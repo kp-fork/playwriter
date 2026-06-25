@@ -26,12 +26,33 @@
           {
             "group": "Getting Started",
             "icon": "lucide:rocket",
-            "pages": ["index", "docs/installation", "docs/cli", "docs/mcp-setup"]
+            "pages": [
+              "index",
+              "docs/installation",
+              "docs/quick-start",
+              "docs/cli",
+              "docs/mcp-setup"
+            ]
+          },
+          {
+            "group": "Features",
+            "icon": "lucide:sparkles",
+            "pages": [
+              "docs/snapshots",
+              "docs/visual-labels",
+              "docs/sessions",
+              "docs/debugger",
+              "docs/network",
+              "docs/recording",
+              "docs/headless",
+              "docs/profiling",
+              "docs/security"
+            ]
           },
           {
             "group": "Guides",
             "icon": "lucide:book-open",
-            "pages": ["docs/remote-access", "docs/troubleshooting"]
+            "pages": ["docs/remote-access", "docs/use-cases", "docs/troubleshooting"]
           },
           {
             "group": "Comparison",
@@ -45,14 +66,9 @@
             ]
           },
           {
-            "group": "Use Cases",
-            "icon": "lucide:lightbulb",
-            "pages": ["docs/use-cases"]
-          },
-          {
             "group": "Reference",
             "icon": "lucide:book-text",
-            "pages": ["docs/skill"]
+            "pages": ["docs/skill", "docs/configuration"]
           }
         ]
       },
@@ -60,6 +76,12 @@
         "tab": "Cloud Browsers",
         "icon": "lucide:dollar-sign",
         "pages": ["docs/cloud-browsers"]
+      },
+      {
+        "tab": "Changelog",
+        "icon": "lucide:newspaper",
+        "changelog": "https://github.com/remorses/playwriter",
+        "initialContent": "changelog/intro"
       }
     ],
     "global": {
@@ -68,12 +90,6 @@
           "anchor": "GitHub",
           "icon": "github",
           "href": "https://github.com/remorses/playwriter",
-          "placement": "tabs"
-        },
-        {
-          "anchor": "Changelog",
-          "icon": "lucide:logs",
-          "href": "https://github.com/remorses/playwriter/releases",
           "placement": "tabs"
         }
       ]
