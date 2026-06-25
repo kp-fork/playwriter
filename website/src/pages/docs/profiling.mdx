@@ -1,0 +1,309 @@
+---
+title: CPU Profiling, Web Vitals, and React Performance Monitoring
+sidebarTitle: Profiling
+description: Profile JavaScript execution with V8 CPU profiler, measure Core Web Vitals (LCP, CLS, FCP), track React component render times, and analyze network transfer sizes.
+icon: lucide:gauge
+---
+
+Playwriter gives agents full access to Chrome's built-in profilers through CDP. Capture **CPU profiles**, measure **Web Vitals**, track **React component renders**, and analyze **network performance**. All from the command line or MCP, no DevTools UI needed.
+
+## CPU profiling with CDP
+
+Drive Chrome's V8 CPU profiler over CDP to capture `.cpuprofile` files, then analyze them with [profano](https://github.com/remorses/profano).
+
+### Start profiling
+
+```js
+state.cdp = await getCDPSession({ page: state.page })
+await state.cdp.send('Profiler.enable')
+await state.cdp.send('Profiler.setSamplingInterval', { interval: 1000 }) // microseconds
+await state.cdp.send('Profiler.start')
+console.log('profiling started')
+```
+
+The `interval` is in **microseconds**. 1000 = 1ms sample interval (default). Lower values give finer detail but larger files.
+
+### Interact with the page
+
+Do whatever triggers the code path you want to profile. Only work between `Profiler.start` and `Profiler.stop` ends up in the profile:
+
+```js
+await state.page.locator('button').first().click()
+await state.page.waitForTimeout(2000)
+```
+
+### Stop and save
+
+```js
+const { profile } = await state.cdp.send('Profiler.stop')
+await state.cdp.send('Profiler.disable')
+const fs = require('node:fs')
+fs.mkdirSync('./tmp/cpu-profiles', { recursive: true })
+const path = `./tmp/cpu-profiles/browser-${Date.now()}.cpuprofile`
+fs.writeFileSync(path, JSON.stringify(profile))
+console.log('wrote', path, '-', profile.samples.length, 'samples')
+```
+
+### Analyze with profano
+
+```bash
+npm install -g profano
+
+# Hot leaves (default, sorted by self-time)
+profano ./tmp/cpu-profiles/browser-*.cpuprofile
+
+# Expensive callers (sorted by total/inclusive time)
+profano ./tmp/cpu-profiles/browser-*.cpuprofile --sort total -n 20
+```
+
+Example output:
+
+```
+Duration: 12.34s
+Samples:  11542 active / 12340 total (6.4% idle)
+Sort:     self
+
+   Self  %Self   Self ms    Total  %Total  Total ms  Function               Location
+───────  ──────  ───────  ───────  ──────  ────────  ──────────────────────  ──────────────
+   3402   29.5%    3.40s     6804   58.9%     6.80s  parseAsync              src/parser.ts:142
+```
+
+Start with `--sort self` to find CPU-bound leaves. Switch to `--sort total` to find expensive callers that dominate wall time.
+
+## Web Vitals
+
+Collect **Core Web Vitals** (TTFB, FCP, LCP, CLS) from any page using PerformanceObserver:
+
+```js
+// Install observers before navigation
+await state.page.evaluate(() => {
+  window.__metrics = { paints: {}, lcp: 0, cls: 0 }
+
+  new PerformanceObserver(list => {
+    for (const entry of list.getEntries()) {
+      window.__metrics.paints[entry.name] = entry.startTime
+    }
+  }).observe({ type: 'paint', buffered: true })
+
+  new PerformanceObserver(list => {
+    const entries = list.getEntries()
+    const last = entries[entries.length - 1]
+    if (last) window.__metrics.lcp = last.startTime
+  }).observe({ type: 'largest-contentful-paint', buffered: true })
+
+  new PerformanceObserver(list => {
+    for (const entry of list.getEntries()) {
+      if (!entry.hadRecentInput) window.__metrics.cls += entry.value || 0
+    }
+  }).observe({ type: 'layout-shift', buffered: true })
+})
+
+// Reload to capture fresh metrics
+await state.page.reload({ waitUntil: 'domcontentloaded' })
+await state.page.waitForTimeout(3000)
+
+// Collect results
+const report = await state.page.evaluate(() => {
+  const nav = performance.getEntriesByType('navigation')[0]
+  return {
+    ttfb: nav?.responseStart || 0,
+    domContentLoaded: nav?.domContentLoadedEventEnd || 0,
+    load: nav?.loadEventEnd || 0,
+    fcp: window.__metrics.paints['first-contentful-paint'] || 0,
+    lcp: window.__metrics.lcp || 0,
+    cls: window.__metrics.cls || 0,
+  }
+})
+console.log(report)
+```
+
+| Metric | What it measures |
+|---|---|
+| **TTFB** | Time to First Byte; server response time |
+| **FCP** | First Contentful Paint; first visible content |
+| **LCP** | Largest Contentful Paint; main content visible |
+| **CLS** | Cumulative Layout Shift; visual stability |
+
+## Long tasks and interaction latency
+
+Detect **long tasks** (>50ms) and slow **event handlers** that block interactivity:
+
+```js
+await state.page.evaluate(() => {
+  window.__longTasks = []
+  window.__eventTimings = []
+
+  new PerformanceObserver(list => {
+    window.__longTasks.push(...list.getEntries().map(e => ({
+      startTime: e.startTime,
+      duration: e.duration
+    })))
+  }).observe({ type: 'longtask', buffered: true })
+
+  new PerformanceObserver(list => {
+    window.__eventTimings.push(...list.getEntries().map(e => ({
+      name: e.name,
+      duration: e.duration,
+      interactionId: e.interactionId || 0
+    })))
+  }).observe({ type: 'event', buffered: true, durationThreshold: 16 })
+})
+
+// Interact with the page
+await state.page.locator('button').first().click()
+
+// Collect results
+const report = await state.page.evaluate(() => ({
+  longTasks: window.__longTasks.filter(e => e.duration >= 50),
+  events: window.__eventTimings.filter(e => e.interactionId !== 0),
+}))
+console.log(report)
+```
+
+## Network analysis
+
+Measure the **heaviest transferred resources** using raw CDP network events:
+
+```js
+const cdp = await getCDPSession({ page: state.page })
+await cdp.send('Network.enable')
+await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })
+
+const responses = new Map()
+const finished = new Map()
+
+cdp.on('Network.responseReceived', event => {
+  responses.set(event.requestId, {
+    url: event.response.url,
+    mimeType: event.response.mimeType,
+  })
+})
+
+cdp.on('Network.loadingFinished', event => {
+  finished.set(event.requestId, event.encodedDataLength)
+})
+
+await state.page.reload({ waitUntil: 'domcontentloaded' })
+await state.page.waitForTimeout(2000)
+
+const largest = [...responses.entries()]
+  .map(([id, r]) => ({ url: r.url, mimeType: r.mimeType, bytes: finished.get(id) || 0 }))
+  .sort((a, b) => b.bytes - a.bytes)
+  .slice(0, 10)
+
+console.log(largest)
+```
+
+## React component profiling
+
+Track **React component renders** and scheduler events using React 19.2+ Performance Track entries. Requires a **development or profiling build** of React.
+
+### Install the observer
+
+```js
+await state.page.evaluate(() => {
+  window.__reactMeasures = []
+  const observer = new PerformanceObserver(list => {
+    for (const entry of list.getEntries()) {
+      if (!entry.detail?.devtools?.track) continue
+      window.__reactMeasures.push({
+        name: entry.name,
+        duration: entry.duration,
+        startTime: entry.startTime,
+        track: entry.detail.devtools.track,
+      })
+    }
+  })
+  observer.observe({ type: 'measure', buffered: true })
+})
+console.log('Observer installed')
+```
+
+React sets `detail.devtools.track` on every measure it emits. The filter keeps only React data and excludes unrelated measures from other libraries.
+
+### Interact with the app
+
+Click around, navigate, toggle themes, type. Any React state change triggers component renders that get captured.
+
+### Save as .cpuprofile
+
+Convert the captured measures to a `.cpuprofile` file that profano can analyze:
+
+```js
+const measures = await state.page.evaluate(() => window.__reactMeasures)
+if (!measures.length) { console.log('No React measures captured'); return }
+
+const TICK = 100
+const nodes = [
+  { id: 1, callFrame: { functionName: '(root)', scriptId: '0', url: '', lineNumber: -1, columnNumber: -1 }, children: [2] },
+  { id: 2, callFrame: { functionName: '(idle)', scriptId: '0', url: '', lineNumber: -1, columnNumber: -1 }, children: [] },
+]
+
+const nameToId = new Map()
+let nextId = 3
+for (const m of measures) {
+  const name = m.name.replace('\u200b', '')
+  const key = m.track + '::' + name
+  if (!nameToId.has(key)) {
+    const id = nextId++
+    nameToId.set(key, id)
+    nodes.push({ id, callFrame: { functionName: name, scriptId: String(id), url: m.track, lineNumber: -1, columnNumber: -1 }, children: [] })
+    nodes[0].children.push(id)
+  }
+}
+
+const sorted = [...measures].sort((a, b) => a.startTime - b.startTime)
+const t0 = sorted[0].startTime
+const endUs = Math.round((Math.max(...sorted.map(m => m.startTime + m.duration)) - t0) * 1000)
+
+const events = sorted.map(m => ({
+  startUs: Math.round((m.startTime - t0) * 1000),
+  endUs: Math.round((m.startTime + m.duration - t0) * 1000),
+  nodeId: nameToId.get(m.track + '::' + m.name.replace('\u200b', '')),
+}))
+
+const samples = []
+const timeDeltas = []
+for (let t = 0; t < endUs; t += TICK) {
+  let node = 2
+  for (const ev of events) {
+    if (t >= ev.startUs && t < ev.endUs) node = ev.nodeId
+  }
+  samples.push(node)
+  timeDeltas.push(TICK)
+}
+
+const fs = require('node:fs')
+fs.writeFileSync('./react-profile.cpuprofile', JSON.stringify({ nodes, samples, startTime: 0, endTime: endUs, timeDeltas }))
+console.log('Saved react-profile.cpuprofile')
+```
+
+### Analyze
+
+```bash
+profano react-profile.cpuprofile --sort self
+```
+
+Example output:
+
+```
+Duration: 47.23s
+Samples:  786 active / 472317 total (99.8% idle)
+Sort:     self
+
+   Self  %Self   Self ms    Total  %Total  Total ms  Function               Location
+───────  ──────  ───────  ───────  ──────  ────────  ──────────────────────  ──────────
+    258   32.8%   25.8ms      258   32.8%    25.8ms  Mount                   Components
+     87   11.1%    8.7ms       87   11.1%     8.7ms  EditorialPage           Components
+     73    9.3%    7.3ms       73    9.3%     7.3ms  Update Blocked          Transition
+     62    7.9%    6.2ms       62    7.9%     6.2ms  Cascading Update        Blocking
+```
+
+The **Location** column shows the React track: `Components` for component renders, `Transition`/`Blocking`/`Idle` for scheduler events. Scheduler events like `Cascading Update` are common performance smells.
+
+### Gotchas
+
+- **Development builds only.** Production React builds don't emit performance measures. Use a profiling build (`react-dom/profiling`) or development mode.
+- **React 19.2+ required.** Earlier versions don't emit `PerformanceObserver` measures with devtools metadata.
+- **Extension overhead.** Browser extensions (React DevTools, ad blockers) show up in CPU profiles. Profile in an incognito window with extensions disabled for clean results.
+- **Use `getCDPSession({ page })`** not `context.newCDPSession()`. Only the Playwriter helper works through the relay.
